@@ -2,7 +2,6 @@ package com.pg.replication.consumer.kafka.assignment.v1;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.SneakyThrows;
-import org.apache.commons.lang3.stream.IntStreams;
 import org.apache.kafka.clients.consumer.ConsumerGroupMetadata;
 import org.apache.kafka.clients.consumer.ConsumerPartitionAssignor;
 import org.apache.kafka.common.Cluster;
@@ -11,10 +10,7 @@ import org.apache.kafka.common.TopicPartition;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 
 public class ReplicationCooperativeAssignor implements ConsumerPartitionAssignor, Configurable {
 
@@ -47,8 +43,16 @@ public class ReplicationCooperativeAssignor implements ConsumerPartitionAssignor
     }
 
     private AssignmentContainer buildAssignmentContainer(Cluster cluster, GroupSubscription groupSubscription) {
-        AssignmentContainer assignmentContainer = new AssignmentContainer(config.getMasterTopic(), config.getReplicaTopic(), config.getMaxAssignmentsPerInstance());
-        Set<String> seenTopics = new HashSet<>(cluster.topics().size());
+        Integer masterTopicPartitionCount = Optional.ofNullable(cluster.partitionCountForTopic(config.getMasterTopic()))
+                .orElse(0);
+        Integer replicaTopicPartitionCount = Optional.ofNullable(cluster.partitionCountForTopic(config.getReplicaTopic()))
+                .orElse(0);
+
+        AssignmentContainer assignmentContainer = new AssignmentContainer(
+                config.getMasterTopic(),
+                config.getReplicaTopic(),
+                config.getMaxAssignmentsPerInstance(), masterTopicPartitionCount, replicaTopicPartitionCount);
+
         for (Map.Entry<String, Subscription> consumerSubscription : groupSubscription.groupSubscription().entrySet()) {
             String consumer = consumerSubscription.getKey();
             Subscription subscription = consumerSubscription.getValue();
@@ -56,18 +60,8 @@ public class ReplicationCooperativeAssignor implements ConsumerPartitionAssignor
             List<String> topics = subscription.topics();
             assignmentContainer.addInstanceConsumer(instance, consumer, new HashSet<>(topics));
 
-            for (String topic : topics) {
-                if (seenTopics.contains(topic)) {
-                    continue;
-                }
-
-                Integer partitionsForTopic = cluster.partitionCountForTopic(topic);
-                IntStreams.range(partitionsForTopic).mapToObj(i -> new TopicPartition(topic, i)).forEach(assignmentContainer::addPartition);
-                seenTopics.add(topic);
-            }
-
             for (TopicPartition topicPartition : subscription.ownedPartitions()) {
-                assignmentContainer.addAssignment(topicPartition, instance, consumer);
+                assignmentContainer.addAssignment(topicPartition, instance);
             }
         }
         return assignmentContainer;

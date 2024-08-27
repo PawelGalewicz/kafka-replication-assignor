@@ -7,42 +7,33 @@ import java.util.*;
 
 public class PartitionAssignmentContainer {
     @Getter
-    private final Map<Integer, String> masterPartitionToInstanceAssignment = new HashMap<>();
+    private final Map<Integer, String> masterPartitionToInstanceAssignment;
     @Getter
-    private final Map<Integer, String> replicaPartitionToInstanceAssignment = new HashMap<>();
+    private final Map<Integer, String> replicaPartitionToInstanceAssignment;
 
-//    fixme use bitset?
     @Getter
-    private final Set<Integer> masterPartitionsToAssign = new HashSet<>();
+    private final BitSet masterPartitionsToAssign;
     @Getter
-    private final Set<Integer> replicaPartitionsToAssign = new HashSet<>();
-//    @Getter
-//    private final Set<TopicPartition> otherPartitionsToAssign = new HashSet<>();
+    private final BitSet replicaPartitionsToAssign;
 
-//    public void addOtherPartition(TopicPartition topicPartition) {
-//        otherPartitionsToAssign.add(topicPartition);
-//    }
-
-    public void addReplicaPartition(TopicPartition topicPartition) {
-        replicaPartitionsToAssign.add(topicPartition.partition());
+    public PartitionAssignmentContainer(Integer masterPartitionsCount, Integer replicaPartitionsCount) {
+        masterPartitionsToAssign = new BitSet(masterPartitionsCount);
+        masterPartitionsToAssign.set(0, masterPartitionsCount);
+        replicaPartitionsToAssign = new BitSet(replicaPartitionsCount);
+        replicaPartitionsToAssign.set(0, replicaPartitionsCount);
+//        fixme maybe the size can be estimated
+        masterPartitionToInstanceAssignment = new HashMap<>();
+        replicaPartitionToInstanceAssignment = new HashMap<>();
     }
-
-    public void addMasterPartition(TopicPartition topicPartition) {
-        masterPartitionsToAssign.add(topicPartition.partition());
-    }
-
-//    public void addOtherAssignment(TopicPartition topicPartition) {
-//        otherPartitionsToAssign.remove(topicPartition);
-//    }
 
     public void addReplicaAssignment(TopicPartition topicPartition, String instance) {
         replicaPartitionToInstanceAssignment.put(topicPartition.partition(), instance);
-        replicaPartitionsToAssign.remove(topicPartition.partition());
+        replicaPartitionsToAssign.clear(topicPartition.partition());
     }
 
     public void addMasterAssignment(TopicPartition topicPartition, String instance) {
         masterPartitionToInstanceAssignment.put(topicPartition.partition(), instance);
-        masterPartitionsToAssign.remove(topicPartition.partition());
+        masterPartitionsToAssign.clear(topicPartition.partition());
     }
 
     public Optional<String> getReplicaInstanceForPartition(Integer partition) {
@@ -56,28 +47,21 @@ public class PartitionAssignmentContainer {
     public void promoteReplicaToMaster(String instance, Integer partition) {
         replicaPartitionToInstanceAssignment.remove(partition);
         masterPartitionToInstanceAssignment.put(partition, instance);
-        masterPartitionsToAssign.remove(partition);
+        masterPartitionsToAssign.set(partition);
+//        fixme maybe we won't need that later
 //        we don't update replicaPartitionsToAssign here as we don't want to assign them straight away, but rather using incremental rebalance
-    }
-
-    public int getNumberOfMasterPartitions() {
-        return masterPartitionToInstanceAssignment.size() + masterPartitionsToAssign.size();
-    }
-
-    public int getNumberOfReplicaPartitions() {
-        return replicaPartitionToInstanceAssignment.size() + replicaPartitionsToAssign.size();
     }
 
     public void removeMasterPartition(TopicPartition masterPartition) {
         int partition = masterPartition.partition();
         masterPartitionToInstanceAssignment.remove(partition);
-        masterPartitionsToAssign.add(partition);
+        masterPartitionsToAssign.set(partition);
     }
 
 
     public void removeReplicaPartition(TopicPartition replicaPartition) {
         int partition = replicaPartition.partition();
         replicaPartitionToInstanceAssignment.remove(partition);
-        replicaPartitionsToAssign.add(partition);
+        replicaPartitionsToAssign.set(partition);
     }
 }

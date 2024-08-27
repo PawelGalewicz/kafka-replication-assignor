@@ -12,16 +12,25 @@ public class AssignmentContainer {
     private final String masterTopic;
     private final String replicaTopic;
     private final Integer maxAssignmentsPerInstance;
+    private final Integer masterTopicPartitionCount;
+    private final Integer replicaTopicPartitionCount;
 
     private final PartitionAssignmentContainer partitionAssignmentContainer;
     private final InstanceAssignmentContainer instanceAssignmentContainer;
 
-    public AssignmentContainer(String masterTopic, String replicaTopic, Integer maxAssignmentsPerInstance) {
+    public AssignmentContainer(String masterTopic,
+                               String replicaTopic,
+                               Integer maxAssignmentsPerInstance,
+                               Integer masterTopicPartitionCount,
+                               Integer replicaTopicPartitionCount) {
         this.masterTopic = masterTopic;
         this.replicaTopic = replicaTopic;
         this.maxAssignmentsPerInstance = maxAssignmentsPerInstance;
-        partitionAssignmentContainer = new PartitionAssignmentContainer();
-        instanceAssignmentContainer = new InstanceAssignmentContainer(maxAssignmentsPerInstance);
+        this.masterTopicPartitionCount = masterTopicPartitionCount;
+        this.replicaTopicPartitionCount = replicaTopicPartitionCount;
+
+        this.instanceAssignmentContainer = new InstanceAssignmentContainer(maxAssignmentsPerInstance);
+        this.partitionAssignmentContainer = new PartitionAssignmentContainer(masterTopicPartitionCount, replicaTopicPartitionCount);
     }
 
     public void addInstanceConsumer(String instance, String consumer, Set<String> topics) {
@@ -32,27 +41,15 @@ public class AssignmentContainer {
         }
     }
 
-    public void addPartition(TopicPartition topicPartition) {
-        if (masterTopic.equals(topicPartition.topic())) {
-            partitionAssignmentContainer.addMasterPartition(topicPartition);
-        } else if (replicaTopic.equals(topicPartition.topic())) {
-            partitionAssignmentContainer.addReplicaPartition(topicPartition);
-        } else {
-//            partitionAssignmentContainer.addOtherPartition(topicPartition);
-        }
-    }
-
     public boolean canAddAssignment(String instance) {
         return instanceAssignmentContainer.canAddAssignment(instance);
     }
 
-    public void addAssignment(TopicPartition topicPartition, String instance, String consumer) {
+    public void addAssignment(TopicPartition topicPartition, String instance) {
         if (masterTopic.equals(topicPartition.topic())) {
             addMasterAssignment(topicPartition, instance);
         } else if (replicaTopic.equals(topicPartition.topic())) {
             addReplicaAssignment(topicPartition, instance);
-        } else {
-//            addOtherAssignment(topicPartition, instance, consumer);
         }
     }
 
@@ -65,11 +62,6 @@ public class AssignmentContainer {
         partitionAssignmentContainer.addReplicaAssignment(topicPartition, instance);
         instanceAssignmentContainer.addReplicaAssignment(topicPartition, instance);
     }
-
-//    private void addOtherAssignment(TopicPartition topicPartition, String instance, String consumer) {
-//        partitionAssignmentContainer.addOtherAssignment(topicPartition);
-//        instanceAssignmentContainer.addOtherAssignment(topicPartition, instance, consumer);
-//    }
 
     public Map<String, ConsumerPartitionAssignor.Assignment> assign() {
 //        fixme if i do any steps here, don't do any optimisations
@@ -88,18 +80,16 @@ public class AssignmentContainer {
 
     private void revokeOverassignedPartitions() {
         int numberOfInstances = instanceAssignmentContainer.getNumberOfInstances();
-        int numberOfMasterPartitions = partitionAssignmentContainer.getNumberOfMasterPartitions();
-        int numberOfReplicaPartitions = partitionAssignmentContainer.getNumberOfReplicaPartitions();
 
-        int avgMastersPerInstance = Math.ceilDiv(numberOfMasterPartitions, numberOfInstances);
-        int avgReplicasPerInstance = Math.ceilDiv(numberOfReplicaPartitions, numberOfInstances);
+        int avgMastersPerInstance = Math.ceilDiv(masterTopicPartitionCount, numberOfInstances);
+        int avgReplicasPerInstance = Math.ceilDiv(replicaTopicPartitionCount, numberOfInstances);
         int avgTopicsPerInstance = avgReplicasPerInstance + avgMastersPerInstance;
 //        fixme min would mean more reassignments but also more balanced assignment, max would mean more imbalance, but less reassignments - we don't do them at all
         int maxAssignmentPerInstance = Math.min(maxAssignmentsPerInstance, avgTopicsPerInstance);
 
 //        fixme master imbalance check might need to be done prior to pending replicas being assigned in case a master would be reassigned to a replica that was just assigned
         Set<Map.Entry<String, TopicPartition>> entriesToReassignForMasterImbalances = findPartitionsToRevokeByInstanceForMasterImbalance(
-                numberOfMasterPartitions,
+                masterTopicPartitionCount,
                 avgMastersPerInstance,
                 maxAssignmentPerInstance
         );
@@ -115,7 +105,7 @@ public class AssignmentContainer {
         }
 
         Set<Map.Entry<String, TopicPartition>> entriesToReassignForReplicaImbalances = findPartitionsToRevokeByInstanceForReplicaImbalance(
-                numberOfReplicaPartitions,
+                replicaTopicPartitionCount,
                 avgReplicasPerInstance,
                 revokedMasterPartitions
         );
@@ -228,8 +218,8 @@ public class AssignmentContainer {
     }
 
     private void assignPendingMasterPartitions() {
-        Set<Integer> masterPartitionsToAssign = Set.copyOf(partitionAssignmentContainer.getMasterPartitionsToAssign());
-        for (Integer masterPartition : masterPartitionsToAssign) {
+        BitSet masterPartitionsToAssign = (BitSet) partitionAssignmentContainer.getMasterPartitionsToAssign().clone();
+        for (int masterPartition = masterPartitionsToAssign.nextSetBit(0); masterPartition >= 0; masterPartition = masterPartitionsToAssign.nextSetBit(masterPartition + 1)) {
             Optional<String> masterCandidateFromReplica = partitionAssignmentContainer.getReplicaInstanceForPartition(masterPartition);
             if (masterCandidateFromReplica.isPresent()) {
 //                We don't check if we can assign with canAddAssignment() because if replica is assigned we can replace it with a master
@@ -247,18 +237,19 @@ public class AssignmentContainer {
     }
 
     private void assignPendingReplicaPartitions() {
-        Set<Integer> replicaPartitionsToAssign = Set.copyOf(partitionAssignmentContainer.getReplicaPartitionsToAssign());
-        for (Integer replicaPartition : replicaPartitionsToAssign) {
+        BitSet replicaPartitionsToAssign = (BitSet) partitionAssignmentContainer.getReplicaPartitionsToAssign().clone();
+        for (int replicaPartition = replicaPartitionsToAssign.nextSetBit(0); replicaPartition >= 0; replicaPartition = replicaPartitionsToAssign.nextSetBit(replicaPartition + 1)) {
             Set<String> replicaCandidates = getInstancesNotAssignedToMaster(replicaPartition);
 //            iterate over workers and add to fill capacity
 //            could be checking assignments or replicas here
+            int finalReplicaPartition = replicaPartition;
             instanceAssignmentContainer.getInstanceAssignmentCount()
                     .stream()
 //                    See if the instance is not assigned to master and it has capacity for additional assignment
                     .filter(c -> replicaCandidates.contains(c.getInstance()) && canAddAssignment(c.getInstance()))
                     .findFirst()
                     .map(InstanceAssignmentCount::getInstance)
-                    .ifPresent(replica -> addReplicaAssignment(new TopicPartition(replicaTopic, replicaPartition), replica));
+                    .ifPresent(replica -> addReplicaAssignment(new TopicPartition(replicaTopic, finalReplicaPartition), replica));
 //            todo add logging if no replica could be chosen
         }
     }
