@@ -64,4 +64,8 @@ public class PartitionAssignmentContainer {
         replicaPartitionToInstanceAssignment.remove(partition);
         replicaPartitionsToAssign.set(partition);
     }
+
+    public boolean hasPendingAssignments() {
+        return replicaPartitionsToAssign.cardinality() + masterPartitionsToAssign.cardinality() > 0;
+    }
 }

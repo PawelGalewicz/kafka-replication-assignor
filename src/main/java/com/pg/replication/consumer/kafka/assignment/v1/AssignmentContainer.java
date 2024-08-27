@@ -64,16 +64,20 @@ public class AssignmentContainer {
     }
 
     public Map<String, ConsumerPartitionAssignor.Assignment> assign() {
-//        fixme if i do any steps here, don't do any optimisations
-//A - assigning things that are not assigned
-        assignPendingMasterPartitions(); // A phase 1
-        assignPendingReplicaPartitions(); // A phase 2
-//        assignPendingOtherPartitions();
-// B - optimisations
-//        fixme do just one optimisation at a time, will be more rebalances but they aren't too costly,
-//        we do either phase 3 or phase 4
-//        we check if any instance has more than 1 assignment more then the least assigned, choose this one
-        revokeOverassignedPartitions(); // B phase 3 - masters , phase 4 - replicas
+        if (partitionAssignmentContainer.hasPendingAssignments()) {
+//            If there are partitions that need assignment, assign them and return. Optimisations can be done in the next rebalance
+            assignPendingMasterPartitions(); // A phase 1
+            assignPendingReplicaPartitions(); // A phase 2
+        } else {
+//            If all partitions are already assigned, we can see if there are any optimisations necessary. We will do them one at a time
+//            to make sure reassignments keep the state consistent
+/*
+        fixme: do just one optimisation at a time, will be more rebalances but they aren't too costly,
+        we do either phase 3 or phase 4
+        we check if any instance has more than 1 assignment more then the least assigned, choose this one
+*/
+            revokeOverassignedPartitions(); // B phase 3 - masters , phase 4 - replicas
+        }
 
         return instanceAssignmentContainer.getAssignmentsByConsumer();
     }
