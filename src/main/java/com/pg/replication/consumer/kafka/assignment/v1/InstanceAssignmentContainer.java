@@ -5,6 +5,7 @@ import org.apache.kafka.clients.consumer.ConsumerPartitionAssignor;
 import org.apache.kafka.common.TopicPartition;
 
 import java.util.*;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -19,11 +20,6 @@ public class InstanceAssignmentContainer {
     Map<String, Set<TopicPartition>> instanceToMasterPartitionAssignment = new HashMap<>();
     Map<String, Set<TopicPartition>> instanceToReplicaPartitionAssignment = new HashMap<>();
     @Getter
-    SortedLinkedList<InstanceAssignmentCount> instanceAssignmentCount = new SortedLinkedList<>((one, two) -> one.compareTo(two, InstanceAssignmentCount::getAssignmentCounter));
-    @Getter
-    SortedLinkedList<InstanceAssignmentCount> masterAssignmentCount = new SortedLinkedList<>((one, two) -> one.compareTo(two, InstanceAssignmentCount::getMasterCounter));
-    @Getter
-    SortedLinkedList<InstanceAssignmentCount> replicaAssignmentCount = new SortedLinkedList<>((one, two) -> one.compareTo(two, InstanceAssignmentCount::getReplicaCounter));
     Map<String, InstanceAssignmentCount> instanceAssignmentCounter = new HashMap<>();
     Map<String, InstanceConsumers> instanceToConsumers = new HashMap<>();
 
@@ -65,17 +61,9 @@ public class InstanceAssignmentContainer {
 
     public void initialiseInstance(String instance) {
         InstanceAssignmentCount initialCount = InstanceAssignmentCount.first(instance, maxAssignmentsPerInstance);
-        instanceAssignmentCount.add(initialCount);
-        masterAssignmentCount.add(initialCount);
-        replicaAssignmentCount.add(initialCount);
         instanceAssignmentCounter.put(instance, initialCount);
         instanceToConsumers.put(instance, new InstanceConsumers());
     }
-
-//    public void addOtherAssignment(TopicPartition topicPartition, String instance, String consumer) {
-//        consumerToOtherPartitionAssignment.computeIfAbsent(consumer, ignore -> new HashSet<>()).add(topicPartition);
-//        incrementCounter(instance);
-//    }
 
     public boolean canAddAssignment(String instance) {
         return instanceAssignmentCounter.getOrDefault(instance, InstanceAssignmentCount.first(instance, maxAssignmentsPerInstance)).canIncrement();
@@ -93,26 +81,9 @@ public class InstanceAssignmentContainer {
         }
     }
 
-    private void modifyCounter(String instance, Function<InstanceAssignmentCount, InstanceAssignmentCount> incrementFunction) {
-        InstanceAssignmentCount count = instanceAssignmentCounter.getOrDefault(instance, InstanceAssignmentCount.first(instance, maxAssignmentsPerInstance));
-        InstanceAssignmentCount newCount = incrementFunction.apply(count);
-        modifySortedCounters(count, newCount);
-        instanceAssignmentCounter.put(instance, newCount);
-    }
-
-    private void modifySortedCounters(InstanceAssignmentCount count, InstanceAssignmentCount newCount) {
-        instanceAssignmentCount.remove(count);
-        instanceAssignmentCount.add(newCount);
-
-        masterAssignmentCount.remove(count);
-        masterAssignmentCount.add(newCount);
-
-        replicaAssignmentCount.remove(count);
-        replicaAssignmentCount.add(newCount);
-    }
-
-    public String getLeastAssigned() {
-        return instanceAssignmentCount.getLast().getInstance();
+    private void modifyCounter(String instance, Consumer<InstanceAssignmentCount> incrementFunction) {
+        InstanceAssignmentCount instanceAssignmentCount = instanceAssignmentCounter.computeIfAbsent(instance, ignore -> InstanceAssignmentCount.first(instance, maxAssignmentsPerInstance));
+        incrementFunction.accept(instanceAssignmentCount);
     }
 
     public void promoteReplicaToMaster(String instance, TopicPartition replicaPartition, TopicPartition masterPartition) {
@@ -168,7 +139,6 @@ public class InstanceAssignmentContainer {
     @Builder(toBuilder = true)
     @EqualsAndHashCode
     public static class InstanceAssignmentCount {
-//        fixme compare instance ids in comparison and maybe then treesets will work
         String instance;
         Integer masterCounter;
         Integer replicaCounter;
@@ -183,52 +153,43 @@ public class InstanceAssignmentContainer {
             this.maxCounter = maxCounter;
         }
 
-//        fixme add static method to build comparators
-        public int compareTo(InstanceAssignmentCount o, Function<InstanceAssignmentCount, Integer> comparingValueSupplier) {
-            return comparingValueSupplier.apply(o).compareTo(comparingValueSupplier.apply(this));
+        public void incrementMaster() {
+            masterCounter += 1;
+            assignmentCounter += 1;
         }
 
-        public InstanceAssignmentCount incrementMaster() {
-            return this.toBuilder()
-                    .masterCounter(masterCounter + 1)
-                    .assignmentCounter(assignmentCounter + 1)
-                    .build();
+        public void incrementReplica() {
+            replicaCounter += 1;
+            assignmentCounter += 1;
         }
 
-        public InstanceAssignmentCount incrementReplica() {
-            return this.toBuilder()
-                    .replicaCounter(replicaCounter + 1)
-                    .assignmentCounter(assignmentCounter + 1)
-                    .build();
+        public void decrementMaster() {
+            masterCounter -= 1;
+            assignmentCounter -= 1;
         }
 
-        public InstanceAssignmentCount decrementMaster() {
-            return this.toBuilder()
-                    .masterCounter(masterCounter - 1)
-                    .assignmentCounter(assignmentCounter - 1)
-                    .build();
+        public void decrementReplica() {
+            replicaCounter -= 1;
+            assignmentCounter -= 1;
         }
 
-        public InstanceAssignmentCount decrementReplica() {
-            return this.toBuilder()
-                    .replicaCounter(replicaCounter - 1)
-                    .assignmentCounter(assignmentCounter - 1)
-                    .build();
+        public void incrementMasterDecrementReplica() {
+            masterCounter += 1;
+            replicaCounter -= 1;
         }
 
-        public InstanceAssignmentCount incrementMasterDecrementReplica() {
-            return this.toBuilder()
-                    .masterCounter(masterCounter + 1)
-                    .replicaCounter(replicaCounter - 1)
-                    .build();
+        public boolean canIncrement() {
+            return assignmentCounter < maxCounter;
         }
 
         public static InstanceAssignmentCount first(String instance, Integer maxCounter) {
             return new InstanceAssignmentCount(instance, maxCounter);
         }
 
-        public boolean canIncrement() {
-            return assignmentCounter < maxCounter;
+        public static Comparator<InstanceAssignmentCount> masterThenAssignmentCountComparator() {
+            return Comparator.comparingInt(InstanceAssignmentCount::getMasterCounter)
+                    .thenComparingInt(InstanceAssignmentCount::getAssignmentCounter)
+                    .thenComparing(InstanceAssignmentCount::getInstance);
         }
     }
 

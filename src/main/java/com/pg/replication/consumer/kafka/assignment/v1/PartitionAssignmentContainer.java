@@ -10,10 +10,8 @@ public class PartitionAssignmentContainer {
     private final Map<Integer, String> masterPartitionToInstanceAssignment;
     @Getter
     private final Map<Integer, String> replicaPartitionToInstanceAssignment;
-
     @Getter
     private final BitSet masterPartitionsToAssign;
-    @Getter
     private final BitSet replicaPartitionsToAssign;
 
     public PartitionAssignmentContainer(Integer masterPartitionsCount, Integer replicaPartitionsCount) {
@@ -58,6 +56,17 @@ public class PartitionAssignmentContainer {
         masterPartitionsToAssign.set(partition);
     }
 
+    public Queue<Integer> getReplicaPartitionsToAssign() {
+        Queue<Integer> replicasToAssign = new LinkedList<>();
+
+        for (int replicaPartition = replicaPartitionsToAssign.nextSetBit(0);
+             replicaPartition >= 0;
+             replicaPartition = replicaPartitionsToAssign.nextSetBit(replicaPartition + 1)) {
+            replicasToAssign.add(replicaPartition);
+        }
+
+        return replicasToAssign;
+    }
 
     public void removeReplicaPartition(TopicPartition replicaPartition) {
         int partition = replicaPartition.partition();
