@@ -5,6 +5,9 @@ import org.apache.kafka.clients.consumer.ConsumerPartitionAssignor;
 import org.apache.kafka.common.TopicPartition;
 
 import java.util.*;
+import java.util.stream.Collectors;
+
+import static java.util.Map.entry;
 
 public class AssignmentContainer {
     private final String masterTopic;
@@ -33,9 +36,9 @@ public class AssignmentContainer {
 
     public void addInstanceConsumer(String instance, String consumer, Set<String> topics) {
         if (topics.contains(masterTopic)) {
-            instanceAssignmentContainer.addInstanceMaster(instance, consumer);
+            instanceAssignmentContainer.addInstanceMasterConsumer(instance, consumer);
         } else if (topics.contains(replicaTopic)) {
-            instanceAssignmentContainer.addInstanceReplica(instance, consumer);
+            instanceAssignmentContainer.addInstanceReplicaConsumer(instance, consumer);
         }
     }
 
@@ -68,143 +71,106 @@ public class AssignmentContainer {
         } else {
 //            If all partitions are already assigned, we can see if there are any optimisations necessary. We will do them one at a time
 //            to make sure reassignments keep the state consistent
-            revokeOverassignedPartitions(); // B phase 3 - masters , phase 4 - replicas
+            optimiseAssignment();
         }
 
         return instanceAssignmentContainer.getAssignmentsByConsumer();
     }
 //
-    private void revokeOverassignedPartitions() {
-/*
-        fixme: reimplement to do just one optimisation at a time, will be more rebalances but they aren't too costly.
-        We will check if master optimisations can be done, and if none possible, then try optimising replicas.
-        To do so, we check if any instance has more than 1 assignment more then the least assigned, choose this one
-*/
-
-
-//        int numberOfInstances = instanceAssignmentContainer.getNumberOfInstances();
-//
-//        int avgMastersPerInstance = Math.ceilDiv(masterTopicPartitionCount, numberOfInstances);
-//        int avgReplicasPerInstance = Math.ceilDiv(replicaTopicPartitionCount, numberOfInstances);
-//        int avgTopicsPerInstance = avgReplicasPerInstance + avgMastersPerInstance;
-////        fixme min would mean more reassignments but also more balanced assignment, max would mean more imbalance, but less reassignments - we don't do them at all
-//        int maxAssignmentPerInstance = Math.min(maxAssignmentsPerInstance, avgTopicsPerInstance);
-//
-////        fixme master imbalance check might need to be done prior to pending replicas being assigned in case a master would be reassigned to a replica that was just assigned
-//        Set<Map.Entry<String, TopicPartition>> entriesToReassignForMasterImbalances = findPartitionsToRevokeByInstanceForMasterImbalance(
-//                masterTopicPartitionCount,
-//                avgMastersPerInstance,
-//                maxAssignmentPerInstance
-//        );
-//
-//        Set<Integer> revokedMasterPartitions = new HashSet<>(entriesToReassignForMasterImbalances.size());
-//        for (Map.Entry<String, TopicPartition> entry : entriesToReassignForMasterImbalances) {
-//            if (masterTopic.equals(entry.getValue().topic())) {
-//                revokeMasterPartition(entry.getKey(), entry.getValue());
-//                revokedMasterPartitions.add(entry.getValue().partition());
-//            } else {
-//                revokeReplicaPartition(entry.getKey(), entry.getValue());
-//            }
-//        }
-//
-//        Set<Map.Entry<String, TopicPartition>> entriesToReassignForReplicaImbalances = findPartitionsToRevokeByInstanceForReplicaImbalance(
-//                replicaTopicPartitionCount,
-//                avgReplicasPerInstance,
-//                revokedMasterPartitions
-//        );
-//
-//        for (Map.Entry<String, TopicPartition> entry : entriesToReassignForReplicaImbalances) {
-//            revokeReplicaPartition(entry.getKey(), entry.getValue());
-//        }
-//    }
-//
-//    private Set<Map.Entry<String, TopicPartition>> findPartitionsToRevokeByInstanceForMasterImbalance(int numberOfMasterPartitions,
-//                                                                                                      int avgMastersPerInstance,
-//                                                                                                      int avgConsumersPerInstance) {
-//
-//        Iterator<InstanceAssignmentCount> masterAssignmentsIterator = instanceAssignmentContainer.getMasterAssignmentCount().iterator();
-//        Set<Map.Entry<String, TopicPartition>> entriesToReassign = new HashSet<>();
-//        while (masterAssignmentsIterator.hasNext()) {
-//            InstanceAssignmentCount masterCount = masterAssignmentsIterator.next();
-//
-//            Set<Map.Entry<String, TopicPartition>> masterPartitionsToReassign = new HashSet<>(numberOfMasterPartitions);
-//            Set<Map.Entry<String, TopicPartition>> replicaPartitionsToReassign = new HashSet<>(numberOfMasterPartitions);
-//            int partitionsOverAvg = masterCount.getMasterCounter() - avgMastersPerInstance;
-//            if (partitionsOverAvg <= 0) {
-//                break;
-//            }
-//
-//            for (TopicPartition masterPartition : instanceAssignmentContainer.getMasterPartitions(masterCount.getInstance())) {
-//                partitionAssignmentContainer.getReplicaInstanceForPartition(masterPartition.partition())
-//                        .map(instanceAssignmentContainer::getCount)
-//                        .ifPresent(replicaCount -> {
-//                            if (replicaCount.getMasterCounter() >= avgMastersPerInstance) {
-//                                return;
-//                            }
-//                            if (replicaCount.getAssignmentCounter() >= avgConsumersPerInstance) {
-////                              These masters can't be revoked as their replicas are on overworked instances. Instead, unassign replica, so it can be assigned to less overworked instance first
-//                                replicaPartitionsToReassign.add(entry(replicaCount.getInstance(), toReplica(masterPartition)));
-//                                return;
-//                            }
-////                          These masters can be revoked as their replicas are on instances that are not overworked
-//                            masterPartitionsToReassign.add(entry(masterCount.getInstance(), masterPartition));
-//                        });
-//            }
-//
-////            Start with masters that can already be reassigned in the next rebalance round and see if it's enough to hit intended avg assignments
-//            for (Map.Entry<String, TopicPartition> assignment : masterPartitionsToReassign) {
-//                if (partitionsOverAvg <= 0) {
-//                    break;
-//                }
-//
-//                entriesToReassign.add(assignment);
-//                partitionsOverAvg -= 1;
-//            }
-////            If not, then revoke replicas to reassign them to a less overworked instance in the next rebalance. These instances will then be chosen as masters in the following rebalance
-//            for (Map.Entry<String, TopicPartition> assignment : replicaPartitionsToReassign) {
-//                if (partitionsOverAvg <= 0) {
-//                    break;
-//                }
-//
-//                entriesToReassign.add(assignment);
-//                partitionsOverAvg -= 1;
-//            }
-//        }
-//
-//        return entriesToReassign;
+    private void optimiseAssignment() {
+        boolean isMasterOptimised = tryOptimiseMasterAssignments();
+        if (!isMasterOptimised) {
+            tryOptimiseReplicaAssignments();
+        }
     }
-//
-//    private Set<Map.Entry<String, TopicPartition>> findPartitionsToRevokeByInstanceForReplicaImbalance(int numberOfReplicaPartitions,
-//                                                                                                       int avgReplicasPerInstance,
-//                                                                                                       Set<Integer> revokedMasterPartitions) {
-//        Iterator<InstanceAssignmentCount> replicaAssignmentsIterator = instanceAssignmentContainer.getReplicaAssignmentCount().iterator();
-//        Set<Map.Entry<String, TopicPartition>> entriesToReassign = new HashSet<>(numberOfReplicaPartitions);
-//        while (replicaAssignmentsIterator.hasNext()) {
-//            InstanceAssignmentCount assignmentCount = replicaAssignmentsIterator.next();
-//
-//            int partitionsOverAvg = assignmentCount.getReplicaCounter() - avgReplicasPerInstance;
-//            if (partitionsOverAvg <= 0) {
-//                break;
-//            }
-//
-//            for (TopicPartition replicaPartition : instanceAssignmentContainer.getReplicaPartitions(assignmentCount.getInstance())) {
-//                if (partitionsOverAvg <= 0) {
-//                    break;
-//                }
-//
-////                We don't want to revoke replicas for which we revoked masters already
-//                if (revokedMasterPartitions.contains(replicaPartition.partition())) {
-//                    continue;
-//                }
-//
-//                entriesToReassign.add(entry(assignmentCount.getInstance(), replicaPartition));
-//                partitionsOverAvg -= 1;
-//            }
-//        }
-//
-//
-//        return entriesToReassign;
-//    }
+
+    private boolean tryOptimiseMasterAssignments() {
+        TreeSet<InstanceAssignmentCount> sortedInstances = getInstanceCountsSortedFromLeastToMostMastersAndAssignments();
+        InstanceAssignmentCount leastAssigned = sortedInstances.getFirst();
+        Iterator<InstanceAssignmentCount> instanceCountsDescending = sortedInstances.descendingIterator();
+
+        Integer prevMasterCount = -1;
+        Integer prevMostOverworkedReplicaCount = -1;
+        Map.Entry<String, TopicPartition> prevMostAssignedReplicaInstance = null;
+        while (instanceCountsDescending.hasNext()) {
+            InstanceAssignmentCount instanceCount = instanceCountsDescending.next();
+
+//            If the previous instance has a larger master imbalance then this one, then we should resolve it first,
+//            but if the imbalance is the same, then maybe a master from this instance could be optimised faster
+            if (instanceCount.getMasterCounter() < prevMasterCount && prevMostAssignedReplicaInstance != null) {
+//                fixme do we treat any master optimisation from following steps as better then the replica optimisation, if so, then we can move this after the while loop
+//                To resolve previous master imbalance, we need to move the most overworked replica first, so we unassign it
+                revokeReplicaAssignment(prevMostAssignedReplicaInstance.getKey(), prevMostAssignedReplicaInstance.getValue());
+                return true;
+            }
+
+            if (instanceCount.getMasterCounter() - leastAssigned.getMasterCounter() <= 1) {
+//                If there is no imbalance on this instance, then we can safely break the while loop as the instances are sorted,
+//                so the following instances also won't have imbalances
+                break;
+            }
+
+            prevMostOverworkedReplicaCount = -1;
+            for (TopicPartition masterPartition : instanceAssignmentContainer.getMasterPartitions(instanceCount.getInstance())) {
+                Optional<String> replicaInstanceForPartition = partitionAssignmentContainer.getReplicaInstanceForPartition(masterPartition.partition());
+                if (replicaInstanceForPartition.isPresent()) {
+                    InstanceAssignmentCount replicaCount = instanceAssignmentContainer.getCount(replicaInstanceForPartition.get());
+                    if (instanceCount.getMasterCounter() - replicaCount.getMasterCounter() > 1) {
+//                        If the replica instance has at least 2 masters less, then we can safely move this master there
+                        revokeMasterPartition(instanceCount.getInstance(), masterPartition);
+                        return true;
+                    } else if (replicaCount.getAssignmentCounter() > prevMostOverworkedReplicaCount) {
+//                        But if not, then lets find a replica instance that is the most overworked and see if it needs to be moved in the next iteration
+                        prevMostOverworkedReplicaCount = replicaCount.getAssignmentCounter();
+                        prevMostAssignedReplicaInstance = entry(replicaCount.getInstance(), toReplica(masterPartition));
+                    }
+                } else {
+//                    fixme log that this master has no replica assigned and there were no assignments to be done, so sth is wrong
+                }
+            }
+
+            prevMasterCount = instanceCount.getMasterCounter();
+        }
+
+        return false;
+    }
+
+    private void tryOptimiseReplicaAssignments() {
+        TreeSet<InstanceAssignmentCount> sortedInstances = getInstanceCountsSortedFromLeastToMostAssignmentsAndMasters();
+        InstanceAssignmentCount leastAssigned = sortedInstances.getFirst();
+        Set<Integer> leastAssignedInstanceMasterPartitions = instanceAssignmentContainer.getMasterPartitions(leastAssigned.getInstance())
+                .stream().map(TopicPartition::partition)
+                .collect(Collectors.toSet());
+
+        Iterator<InstanceAssignmentCount> instanceCountsDescending = sortedInstances.descendingIterator();
+
+        while (instanceCountsDescending.hasNext()) {
+            InstanceAssignmentCount instanceCount = instanceCountsDescending.next();
+            int assignmentImbalance = instanceCount.getReplicaCounter() - leastAssigned.getReplicaCounter();
+            if (assignmentImbalance < 1) {
+//                If there is no imbalance on this instance, then we can safely break the while loop as the instances are sorted,
+//                so the following instances also won't have imbalances
+                break;
+            }
+
+            if (assignmentImbalance == 1 && instanceCount.getMasterCounter() < leastAssigned.getMasterCounter()) {
+//                If the imbalance is just 1, but the master count in the least assigned is higher, then ignore as we don't want to
+//                put more work on instances with more masters
+                continue;
+            }
+
+//            Find the first replica that could be assigned to the least assigned instance (it can't have any masters there)
+            Optional<TopicPartition> replicaPartition = instanceAssignmentContainer.getReplicaPartitions(instanceCount.getInstance())
+                    .stream()
+                    .filter(partition -> !leastAssignedInstanceMasterPartitions.contains(partition.partition()))
+                    .findFirst();
+
+            if (replicaPartition.isPresent()) {
+                revokeReplicaAssignment(instanceCount.getInstance(), replicaPartition.get());
+                return;
+            }
+        }
+    }
 
     private void revokeMasterPartition(String instance, TopicPartition masterPartition) {
         partitionAssignmentContainer.removeMasterPartition(masterPartition);
@@ -236,9 +202,11 @@ public class AssignmentContainer {
             }
         }
 
-        Iterator<InstanceAssignmentCount> instancesIterator = getInstancesIteratorFromLeastToMostAssigned();
+        SortedSet<InstanceAssignmentCount> instanceCountsSortedFromLeastToMostAssigned = getInstanceCountsSortedFromLeastToMostMastersAndAssignments();
+        Iterator<InstanceAssignmentCount> instancesIterator = instanceCountsSortedFromLeastToMostAssigned.iterator();
         int averageMastersPerInstance = getAverageMastersPerInstance();
 
+        Set<Integer> replicasUnableToAssignToPrevInstance = new HashSet<>();
         while (instancesIterator.hasNext()) {
             InstanceAssignmentCount instanceCount = instancesIterator.next();
 
@@ -260,6 +228,8 @@ public class AssignmentContainer {
             }
 
 //            If there's still capacity on the instance, fill it with replicas
+            replicaPartitionsToAssign.addAll(replicasUnableToAssignToPrevInstance);
+            replicasUnableToAssignToPrevInstance.clear();
             while (instanceCount.canIncrement()) {
                 if (!replicaPartitionsToAssign.isEmpty()) {
                     Integer replicaPartition = replicaPartitionsToAssign.poll();
@@ -271,12 +241,8 @@ public class AssignmentContainer {
 //                        We can't assign a replica to the instance that already has a master
                         addReplicaAssignment(new TopicPartition(replicaTopic, replicaPartition), instanceCount.getInstance());
                     } else if (instancesIterator.hasNext()) {
-//                        If there are more instances, a replica can be assigned to another one
-                        replicaPartitionsToAssign.add(replicaPartition);
-//                        But if it's the only replica left, move to the next instance to avoid infinite loop
-                        if (replicaPartitionsToAssign.size() == 1) {
-                            break;
-                        }
+//                        If there are more instances, this replica can be assigned to another one
+                        replicasUnableToAssignToPrevInstance.add(replicaPartition);
                     }
                 } else {
 //                    No more replicas to assign
@@ -314,10 +280,16 @@ public class AssignmentContainer {
         return Math.ceilDiv(masterTopicPartitionCount, numberOfInstances);
     }
 
-    private Iterator<InstanceAssignmentCount> getInstancesIteratorFromLeastToMostAssigned() {
-        SortedSet<InstanceAssignmentCount> instancesSortedByMasterAndAssignmentCounts = new TreeSet<>(InstanceAssignmentCount.masterThenAssignmentCountComparator());
+    private TreeSet<InstanceAssignmentCount> getInstanceCountsSortedFromLeastToMostMastersAndAssignments() {
+        TreeSet<InstanceAssignmentCount> instancesSortedByMasterAndAssignmentCounts = new TreeSet<>(InstanceAssignmentCount.masterThenAssignmentCountComparator());
         instancesSortedByMasterAndAssignmentCounts.addAll(instanceAssignmentContainer.getInstanceAssignmentCounter().values());
-        return instancesSortedByMasterAndAssignmentCounts.iterator();
+        return instancesSortedByMasterAndAssignmentCounts;
+    }
+
+    private TreeSet<InstanceAssignmentCount> getInstanceCountsSortedFromLeastToMostAssignmentsAndMasters() {
+        TreeSet<InstanceAssignmentCount> instancesSortedByMasterAndAssignmentCounts = new TreeSet<>(InstanceAssignmentCount.assignmentThenMasterCountComparator());
+        instancesSortedByMasterAndAssignmentCounts.addAll(instanceAssignmentContainer.getInstanceAssignmentCounter().values());
+        return instancesSortedByMasterAndAssignmentCounts;
     }
 
     private Set<String> getInstancesNotAssignedToMaster(Integer partition) {

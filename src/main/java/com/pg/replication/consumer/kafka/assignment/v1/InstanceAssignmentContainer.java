@@ -6,7 +6,6 @@ import org.apache.kafka.common.TopicPartition;
 
 import java.util.*;
 import java.util.function.Consumer;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -17,6 +16,7 @@ public class InstanceAssignmentContainer {
 
     private final Integer maxAssignmentsPerInstance;
 
+//    fixme bitsets can be used for the 2 first maps here
     Map<String, Set<TopicPartition>> instanceToMasterPartitionAssignment = new HashMap<>();
     Map<String, Set<TopicPartition>> instanceToReplicaPartitionAssignment = new HashMap<>();
     @Getter
@@ -39,7 +39,7 @@ public class InstanceAssignmentContainer {
         return instanceAssignmentCounter.get(instance);
     }
 
-    public void addInstanceMaster(String instance, String consumer) {
+    public void addInstanceMasterConsumer(String instance, String consumer) {
         if (!instanceToConsumers.containsKey(instance)) {
             initialiseInstance(instance);
         }
@@ -49,7 +49,7 @@ public class InstanceAssignmentContainer {
         }
     }
 
-    public void addInstanceReplica(String instance, String consumer) {
+    public void addInstanceReplicaConsumer(String instance, String consumer) {
         if (!instanceToConsumers.containsKey(instance)) {
             initialiseInstance(instance);
         }
@@ -189,6 +189,12 @@ public class InstanceAssignmentContainer {
         public static Comparator<InstanceAssignmentCount> masterThenAssignmentCountComparator() {
             return Comparator.comparingInt(InstanceAssignmentCount::getMasterCounter)
                     .thenComparingInt(InstanceAssignmentCount::getAssignmentCounter)
+                    .thenComparing(InstanceAssignmentCount::getInstance);
+        }
+
+        public static Comparator<InstanceAssignmentCount> assignmentThenMasterCountComparator() {
+            return Comparator.comparingInt(InstanceAssignmentCount::getAssignmentCounter)
+                    .thenComparingInt(InstanceAssignmentCount::getMasterCounter)
                     .thenComparing(InstanceAssignmentCount::getInstance);
         }
     }
