@@ -1,0 +1,21 @@
+kafka:
+  topic:
+    input: input-topic
+    replication: replication-topic
+
+spring:
+  application:
+    name: producer
+  kafka:
+    bootstrap-servers: localhost:19092
+    consumer:
+      properties:
+        spring.json.trusted.packages: "com.pg.replication-assignor.common.event"
+
+management:
+  endpoints:
+    enabled-by-default: true
+
+application:
+  instance:
+    id: "test"
