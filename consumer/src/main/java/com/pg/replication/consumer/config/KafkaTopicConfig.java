@@ -16,26 +16,10 @@ public class KafkaTopicConfig {
     @Value(value = "${spring.kafka.bootstrap-servers}")
     private String bootstrapAddress;
 
-    @Value(value = "${kafka.topic.input}")
-    private String inputTopicName;
-
-    @Value(value = "${kafka.topic.replication}")
-    private String replicaTopicName;
-
     @Bean
     public KafkaAdmin kafkaAdmin() {
         Map<String, Object> configs = new HashMap<>();
         configs.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapAddress);
         return new KafkaAdmin(configs);
-    }
-
-    @Bean
-    public NewTopic inputTopic() {
-        return new NewTopic(inputTopicName, 1, (short) 1);
-    }
-
-    @Bean
-    public NewTopic replicaTopic() {
-        return new NewTopic(replicaTopicName, 1, (short) 1);
     }
 }

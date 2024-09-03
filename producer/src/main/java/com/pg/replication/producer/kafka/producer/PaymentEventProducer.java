@@ -16,7 +16,7 @@ public class PaymentEventProducer {
     private final String inputTopicName;
 
     public PaymentEventProducer(KafkaTemplate<String, PaymentEvent> kafkaTemplate,
-                                @Value(value = "${kafka.topic.input}") String inputTopicName) {
+                                @Value(value = "${kafka.topic.master}") String inputTopicName) {
         this.kafkaTemplate = kafkaTemplate;
         this.inputTopicName = inputTopicName;
     }

@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: replication-consumer
+  name: replication-consumer
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: replication-consumer
+  strategy: {}
+  template:
+    metadata:
+      labels:
+        app: replication-consumer
+    spec:
+      containers:
+      - image: com.pg.replication.consumer:1
+        name: com-pg-replication-consumer-kmdjx
+        resources: {}
+        env:
+          - name: SPRING_PROFILES_ACTIVE
+            value: kubernetes
+          - name: INSTANCE_ID
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: replica-consumer
+  name: replica-consumer
+spec:
+  ports:
+  - name: 8080-8080
+    port: 8080
+    protocol: TCP
+    targetPort: 8080
+  selector:
+    app: replica-consumer
+  type: ClusterIP

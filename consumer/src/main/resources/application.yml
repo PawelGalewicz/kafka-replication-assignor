@@ -1,10 +1,11 @@
 kafka:
   topic:
     master: master-topic
+    replica: replica-topic
 
 spring:
   application:
-    name: producer
+    name: consumer
   kafka:
     consumer:
       properties:
@@ -13,3 +14,7 @@ spring:
 management:
   endpoints:
     enabled-by-default: true
+
+application:
+  instance:
+    max_assignments: 10

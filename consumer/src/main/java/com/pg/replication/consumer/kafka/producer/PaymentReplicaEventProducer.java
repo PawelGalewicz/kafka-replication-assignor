@@ -16,7 +16,7 @@ public class PaymentReplicaEventProducer {
     private final String replicationTopicName;
 
     public PaymentReplicaEventProducer(KafkaTemplate<String, PaymentReplicaEvent> kafkaTemplate,
-                                       @Value(value = "${kafka.topic.replication}") String replicationTopicName) {
+                                       @Value(value = "${kafka.topic.replica}") String replicationTopicName) {
         this.kafkaTemplate = kafkaTemplate;
         this.replicationTopicName = replicationTopicName;
     }

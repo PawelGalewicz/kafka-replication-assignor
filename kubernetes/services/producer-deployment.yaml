@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: replication-producer
+  name: replication-producer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: replication-producer
+  strategy: {}
+  template:
+    metadata:
+      labels:
+        app: replication-producer
+    spec:
+      containers:
+      - image: com.pg.replication.producer:1
+        name: com-pg-replication-producer-kmdjx
+        resources: {}
+        env:
+          - name: SPRING_PROFILES_ACTIVE
+            value: kubernetes
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: replica-producer
+  name: replica-producer
+spec:
+  ports:
+  - name: 8080-8080
+    port: 8080
+    protocol: TCP
+    targetPort: 8080
+  selector:
+    app: replica-producer
+  type: ClusterIP

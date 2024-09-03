@@ -9,7 +9,7 @@
     </parent>
     <groupId>com.pawcio</groupId>
     <artifactId>kafka-replication-assignor</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>1</version>
     <name>kafka-replication-assignor</name>
     <description>A PoC for a custom Kafka partition assignor that supports data replication</description>
     <properties>

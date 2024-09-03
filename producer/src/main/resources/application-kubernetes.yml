@@ -1,0 +1,7 @@
+spring:
+  kafka:
+    bootstrap-servers: kafka-kafka-bootstrap:9092
+
+application:
+  instance:
+    id: "kafka-producer"

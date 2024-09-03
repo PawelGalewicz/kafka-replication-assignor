@@ -11,6 +11,7 @@ import org.apache.kafka.common.TopicPartition;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.stream.Collectors;
 
 public class ReplicationCooperativeAssignor implements ConsumerPartitionAssignor, Configurable {
 
@@ -31,7 +32,8 @@ public class ReplicationCooperativeAssignor implements ConsumerPartitionAssignor
 
     @Override
     public void onAssignment(Assignment assignment, ConsumerGroupMetadata metadata) {
-//        todo
+        String assignmentString = assignment.partitions().stream().map(TopicPartition::toString).collect(Collectors.joining(", "));
+        System.out.println("Assigned partitions: " + assignmentString);
         ConsumerPartitionAssignor.super.onAssignment(assignment, metadata);
     }
 

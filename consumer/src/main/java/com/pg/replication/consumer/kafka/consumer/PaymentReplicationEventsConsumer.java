@@ -15,7 +15,7 @@ public class PaymentReplicationEventsConsumer {
 
     private PaymentEventHandler paymentEventHandler;
 
-    @KafkaListener(topics = "${kafka.topic.replication}", containerFactory = "kafkaListenerContainerFactory")
+    @KafkaListener(topics = "${kafka.topic.replica}", containerFactory = "kafkaListenerContainerFactory")
     public void listenToPaymentReplicaEvents(@Payload PaymentReplicaEvent event, @Header(KafkaHeaders.RECEIVED_PARTITION) int partition) {
         System.out.println("Received Message of type: " + event.getClass().getName() + " from topicPartition: " + partition);
         handlePaymentEvent(event);

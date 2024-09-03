@@ -10,7 +10,7 @@
 	</parent>
 	<groupId>com.pg.replication</groupId>
 	<artifactId>producer</artifactId>
-	<version>0.0.1-SNAPSHOT</version>
+	<version>1</version>
 	<name>producer</name>
 	<description>producer</description>
 
@@ -93,7 +93,7 @@
 				<artifactId>spring-boot-maven-plugin</artifactId>
 				<configuration>
 					<image>
-						<name>${project.groupId}.${project.artifactId}:latest</name>
+						<name>${project.groupId}.${project.artifactId}:1</name>
 						<pullPolicy>IF_NOT_PRESENT</pullPolicy>
 					</image>
 					<excludes>

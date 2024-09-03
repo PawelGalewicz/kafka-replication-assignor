@@ -24,16 +24,20 @@ public class KafkaConsumerConfig {
     @Value(value = "${spring.kafka.bootstrap-servers}")
     private String bootstrapAddress;
 
-    @Value(value = "${kafka.topic.input}")
+    @Value(value = "${kafka.topic.master}")
     private String inputTopicName;
 
-    @Value(value = "${kafka.topic.replication}")
+    @Value(value = "${kafka.topic.replica}")
     private String replicationTopicName;
 
     @Value(value = "${application.instance.id}")
     private String instanceId;
 
+    @Value(value = "${application.instance.max_assignments}")
+    private String maxInstanceAssignment;
+
     public ConsumerFactory<String, PaymentEvent> consumerFactory(String groupId) {
+        System.out.println("Instance id: " + instanceId);
         Map<String, Object> props = new HashMap<>();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapAddress);
         props.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
@@ -43,6 +47,7 @@ public class KafkaConsumerConfig {
         props.put(ReplicationCooperativeAssignorConfig.MASTER_TOPIC, inputTopicName);
         props.put(ReplicationCooperativeAssignorConfig.REPLICA_TOPIC, replicationTopicName);
         props.put(ReplicationCooperativeAssignorConfig.INSTANCE_ID, instanceId);
+        props.put(ReplicationCooperativeAssignorConfig.MAX_ASSIGNMENTS_PER_INSTANCE, maxInstanceAssignment);
         return new DefaultKafkaConsumerFactory<>(props, new StringDeserializer(), jsonDeserializer());
     }
 
