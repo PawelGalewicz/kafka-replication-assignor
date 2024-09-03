@@ -205,6 +205,7 @@ public class AssignmentContainer {
         SortedSet<InstanceAssignmentCount> instanceCountsSortedFromLeastToMostAssigned = getInstanceCountsSortedFromLeastToMostMastersAndAssignments();
         Iterator<InstanceAssignmentCount> instancesIterator = instanceCountsSortedFromLeastToMostAssigned.iterator();
         int averageMastersPerInstance = getAverageMastersPerInstance();
+        int averageReplicasPerInstance = getAverageReplicasPerInstance();
 
         Set<Integer> replicasUnableToAssignToPrevInstance = new HashSet<>();
         while (instancesIterator.hasNext()) {
@@ -231,22 +232,27 @@ public class AssignmentContainer {
             replicaPartitionsToAssign.addAll(replicasUnableToAssignToPrevInstance);
             replicasUnableToAssignToPrevInstance.clear();
             while (instanceCount.canIncrement()) {
-                if (!replicaPartitionsToAssign.isEmpty()) {
-                    Integer replicaPartition = replicaPartitionsToAssign.poll();
-                    Boolean isInstanceMasterOfThisReplicaPartition = partitionAssignmentContainer.getMasterInstanceForPartition(replicaPartition)
-                            .map(master -> master.equals(instanceCount.getInstance()))
-                            .orElse(Boolean.FALSE);
+                if (instanceCount.getReplicaCounter() >= averageReplicasPerInstance) {
+//                    Don't assign replicas over the average number
+                    break;
+                }
 
-                    if (!isInstanceMasterOfThisReplicaPartition) {
-//                        We can't assign a replica to the instance that already has a master
-                        addReplicaAssignment(new TopicPartition(replicaTopic, replicaPartition), instanceCount.getInstance());
-                    } else if (instancesIterator.hasNext()) {
-//                        If there are more instances, this replica can be assigned to another one
-                        replicasUnableToAssignToPrevInstance.add(replicaPartition);
-                    }
-                } else {
+                if (replicaPartitionsToAssign.isEmpty()) {
 //                    No more replicas to assign
                     break;
+                }
+
+                Integer replicaPartition = replicaPartitionsToAssign.poll();
+                Boolean isInstanceMasterOfThisReplicaPartition = partitionAssignmentContainer.getMasterInstanceForPartition(replicaPartition)
+                        .map(master -> master.equals(instanceCount.getInstance()))
+                        .orElse(Boolean.FALSE);
+
+                if (!isInstanceMasterOfThisReplicaPartition) {
+//                        We can't assign a replica to the instance that already has a master
+                    addReplicaAssignment(new TopicPartition(replicaTopic, replicaPartition), instanceCount.getInstance());
+                } else if (instancesIterator.hasNext()) {
+//                        If there are more instances, this replica can be assigned to another one
+                    replicasUnableToAssignToPrevInstance.add(replicaPartition);
                 }
 
             }
@@ -278,6 +284,11 @@ public class AssignmentContainer {
     private int getAverageMastersPerInstance() {
         int numberOfInstances = instanceAssignmentContainer.getNumberOfInstances();
         return Math.ceilDiv(masterTopicPartitionCount, numberOfInstances);
+    }
+
+    private int getAverageReplicasPerInstance() {
+        int numberOfInstances = instanceAssignmentContainer.getNumberOfInstances();
+        return Math.ceilDiv(replicaTopicPartitionCount, numberOfInstances);
     }
 
     private TreeSet<InstanceAssignmentCount> getInstanceCountsSortedFromLeastToMostMastersAndAssignments() {

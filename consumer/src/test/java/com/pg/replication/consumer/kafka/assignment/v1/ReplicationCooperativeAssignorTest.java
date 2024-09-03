@@ -287,6 +287,56 @@ class ReplicationCooperativeAssignorTest {
                     allOf(new AssignmentMapCountCondition(masterOneSubscription.consumer, 2), new AssignmentMapCountCondition(masterTwoSubscription.consumer, 3))
             ));
         }
+
+        @Test
+        @DisplayName("more replicas then instances (even number) - assign replicas evenly")
+        void evenReplicasAreAssignedEvenlyBetweenInstances() {
+//        given
+            String instanceOne = randomString();
+            String instanceTwo = randomString();
+            Integer replicaPartitionsCount = 4;
+            ConsumerSubscription replicaOneSubscription = replicaConsumer(instanceOne, emptyList());
+            ConsumerSubscription replicaTwoSubscription = replicaConsumer(instanceTwo, emptyList());
+
+            Cluster cluster = cluster(0, replicaPartitionsCount);
+            ConsumerPartitionAssignor.GroupSubscription groupSubscription = groupSubscription(replicaOneSubscription, replicaTwoSubscription);
+
+//        when
+            ConsumerPartitionAssignor.GroupAssignment assignment = assignor.assign(cluster, groupSubscription);
+
+//        then
+            assertNotNull(assignment);
+            assertNotNull(assignment.groupAssignment());
+            assertThat(assignment.groupAssignment().keySet()).containsExactlyInAnyOrder(replicaOneSubscription.consumer, replicaTwoSubscription.consumer);
+            assertThat(assignment.groupAssignment().get(replicaOneSubscription.consumer).partitions()).hasSize(2);
+            assertThat(assignment.groupAssignment().get(replicaTwoSubscription.consumer).partitions()).hasSize(2);
+        }
+
+        @Test
+        @DisplayName("more replicas then instances (odd number) - assign replicas evenly")
+        void oddReplicasAreAssignedEvenlyBetweenInstances() {
+//        given
+            String instanceOne = randomString();
+            String instanceTwo = randomString();
+            Integer replicaPartitionsCount = 5;
+            ConsumerSubscription replicaOneSubscription = replicaConsumer(instanceOne, emptyList());
+            ConsumerSubscription replicaTwoSubscription = replicaConsumer(instanceTwo, emptyList());
+
+            Cluster cluster = cluster(0, replicaPartitionsCount);
+            ConsumerPartitionAssignor.GroupSubscription groupSubscription = groupSubscription(replicaOneSubscription, replicaTwoSubscription);
+
+//        when
+            ConsumerPartitionAssignor.GroupAssignment assignment = assignor.assign(cluster, groupSubscription);
+
+//        then
+            assertNotNull(assignment);
+            assertNotNull(assignment.groupAssignment());
+            assertThat(assignment.groupAssignment().keySet()).containsExactlyInAnyOrder(replicaOneSubscription.consumer, replicaTwoSubscription.consumer);
+            assertThat(assignment.groupAssignment()).is(anyOf(
+                    allOf(new AssignmentMapCountCondition(replicaOneSubscription.consumer, 3), new AssignmentMapCountCondition(replicaTwoSubscription.consumer, 2)),
+                    allOf(new AssignmentMapCountCondition(replicaOneSubscription.consumer, 2), new AssignmentMapCountCondition(replicaTwoSubscription.consumer, 3))
+            ));
+        }
     }
 
     @Nested
