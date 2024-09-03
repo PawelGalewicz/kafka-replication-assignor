@@ -12,7 +12,6 @@ import static java.util.Map.entry;
 public class AssignmentContainer {
     private final String masterTopic;
     private final String replicaTopic;
-    private final Integer maxAssignmentsPerInstance;
     private final Integer masterTopicPartitionCount;
     private final Integer replicaTopicPartitionCount;
 
@@ -26,11 +25,10 @@ public class AssignmentContainer {
                                Integer replicaTopicPartitionCount) {
         this.masterTopic = masterTopic;
         this.replicaTopic = replicaTopic;
-        this.maxAssignmentsPerInstance = maxAssignmentsPerInstance;
         this.masterTopicPartitionCount = masterTopicPartitionCount;
         this.replicaTopicPartitionCount = replicaTopicPartitionCount;
 
-        this.instanceAssignmentContainer = new InstanceAssignmentContainer(maxAssignmentsPerInstance);
+        this.instanceAssignmentContainer = new InstanceAssignmentContainer(maxAssignmentsPerInstance, masterTopicPartitionCount, replicaTopicPartitionCount);
         this.partitionAssignmentContainer = new PartitionAssignmentContainer(masterTopicPartitionCount, replicaTopicPartitionCount);
     }
 
@@ -42,10 +40,6 @@ public class AssignmentContainer {
         }
     }
 
-    public boolean canAddAssignment(String instance) {
-        return instanceAssignmentContainer.canAddAssignment(instance);
-    }
-
     public void addAssignment(TopicPartition topicPartition, String instance) {
         if (masterTopic.equals(topicPartition.topic())) {
             addMasterAssignment(instance, topicPartition);
@@ -55,13 +49,13 @@ public class AssignmentContainer {
     }
 
     private void addMasterAssignment(String instance, TopicPartition topicPartition) {
-        partitionAssignmentContainer.addMasterAssignment(topicPartition, instance);
-        instanceAssignmentContainer.addMasterAssignment(topicPartition, instance);
+        partitionAssignmentContainer.addMasterAssignment(instance, topicPartition.partition());
+        instanceAssignmentContainer.addMasterAssignment(instance, topicPartition.partition());
     }
 
     private void addReplicaAssignment(TopicPartition topicPartition, String instance) {
-        partitionAssignmentContainer.addReplicaAssignment(topicPartition, instance);
-        instanceAssignmentContainer.addReplicaAssignment(topicPartition, instance);
+        partitionAssignmentContainer.addReplicaAssignment(instance, topicPartition.partition());
+        instanceAssignmentContainer.addReplicaAssignment(instance, topicPartition.partition());
     }
 
     public Map<String, ConsumerPartitionAssignor.Assignment> assign() {
@@ -74,7 +68,7 @@ public class AssignmentContainer {
             optimiseAssignment();
         }
 
-        return instanceAssignmentContainer.getAssignmentsByConsumer();
+        return instanceAssignmentContainer.getAssignmentsByConsumer(masterTopic, replicaTopic);
     }
 //
     private void optimiseAssignment() {
@@ -91,7 +85,7 @@ public class AssignmentContainer {
 
         Integer prevMasterCount = -1;
         Integer prevMostOverworkedReplicaCount = -1;
-        Map.Entry<String, TopicPartition> prevMostAssignedReplicaInstance = null;
+        Map.Entry<String, Integer> prevMostAssignedReplicaInstance = null;
         while (instanceCountsDescending.hasNext()) {
             InstanceAssignmentCount instanceCount = instanceCountsDescending.next();
 
@@ -111,18 +105,19 @@ public class AssignmentContainer {
             }
 
             prevMostOverworkedReplicaCount = -1;
-            for (TopicPartition masterPartition : instanceAssignmentContainer.getMasterPartitions(instanceCount.getInstance())) {
-                Optional<String> replicaInstanceForPartition = partitionAssignmentContainer.getReplicaInstanceForPartition(masterPartition.partition());
+            BitSet masterPartitionsSet = instanceAssignmentContainer.getMasterPartitionSet(instanceCount.getInstance());
+            for (int partition = masterPartitionsSet.nextSetBit(0); partition >= 0; partition = masterPartitionsSet.nextSetBit(partition + 1)) {
+                Optional<String> replicaInstanceForPartition = partitionAssignmentContainer.getReplicaInstanceForPartition(partition);
                 if (replicaInstanceForPartition.isPresent()) {
                     InstanceAssignmentCount replicaCount = instanceAssignmentContainer.getCount(replicaInstanceForPartition.get());
                     if (instanceCount.getMasterCounter() - replicaCount.getMasterCounter() > 1) {
 //                        If the replica instance has at least 2 masters less, then we can safely move this master there
-                        revokeMasterPartition(instanceCount.getInstance(), masterPartition);
+                        revokeMasterPartition(instanceCount.getInstance(), partition);
                         return true;
                     } else if (replicaCount.getAssignmentCounter() > prevMostOverworkedReplicaCount) {
 //                        But if not, then lets find a replica instance that is the most overworked and see if it needs to be moved in the next iteration
                         prevMostOverworkedReplicaCount = replicaCount.getAssignmentCounter();
-                        prevMostAssignedReplicaInstance = entry(replicaCount.getInstance(), toReplica(masterPartition));
+                        prevMostAssignedReplicaInstance = entry(replicaCount.getInstance(), partition);
                     }
                 } else {
 //                    fixme log that this master has no replica assigned and there were no assignments to be done, so sth is wrong
@@ -138,9 +133,6 @@ public class AssignmentContainer {
     private void tryOptimiseReplicaAssignments() {
         TreeSet<InstanceAssignmentCount> sortedInstances = getInstanceCountsSortedFromLeastToMostAssignmentsAndMasters();
         InstanceAssignmentCount leastAssigned = sortedInstances.getFirst();
-        Set<Integer> leastAssignedInstanceMasterPartitions = instanceAssignmentContainer.getMasterPartitions(leastAssigned.getInstance())
-                .stream().map(TopicPartition::partition)
-                .collect(Collectors.toSet());
 
         Iterator<InstanceAssignmentCount> instanceCountsDescending = sortedInstances.descendingIterator();
 
@@ -160,30 +152,28 @@ public class AssignmentContainer {
             }
 
 //            Find the first replica that could be assigned to the least assigned instance (it can't have any masters there)
-            Optional<TopicPartition> replicaPartition = instanceAssignmentContainer.getReplicaPartitions(instanceCount.getInstance())
+            BitSet instanceMasterPartitions = instanceAssignmentContainer.getMasterPartitionSet(instanceCount.getInstance());
+            BitSet instanceReplicaPartitions = instanceAssignmentContainer.getReplicaPartitionSet(instanceCount.getInstance());
+            OptionalInt replicaPartition = instanceReplicaPartitions
                     .stream()
-                    .filter(partition -> !leastAssignedInstanceMasterPartitions.contains(partition.partition()))
+                    .filter(p -> !instanceMasterPartitions.get(p))
                     .findFirst();
 
             if (replicaPartition.isPresent()) {
-                revokeReplicaAssignment(instanceCount.getInstance(), replicaPartition.get());
+                revokeReplicaAssignment(instanceCount.getInstance(), replicaPartition.getAsInt());
                 return;
             }
         }
     }
 
-    private void revokeMasterPartition(String instance, TopicPartition masterPartition) {
+    private void revokeMasterPartition(String instance, Integer masterPartition) {
         partitionAssignmentContainer.removeMasterPartition(masterPartition);
         instanceAssignmentContainer.removeMasterPartition(instance, masterPartition);
     }
 
-    private void revokeReplicaAssignment(String instance, TopicPartition replicaPartition) {
+    private void revokeReplicaAssignment(String instance, Integer replicaPartition) {
         partitionAssignmentContainer.removeReplicaPartition(replicaPartition);
         instanceAssignmentContainer.removeReplicaPartition(instance, replicaPartition);
-    }
-
-    private TopicPartition toReplica(TopicPartition master) {
-        return new TopicPartition(replicaTopic, master.partition());
     }
 
     private void assignPendingPartitions() {
@@ -272,13 +262,11 @@ public class AssignmentContainer {
     }
 
     private void forceMasterAssignment(TopicPartition masterPartition, String instance) {
-        instanceAssignmentContainer.getReplicaPartitions(instance)
-                .stream()
-                .findFirst()
-                .ifPresent(replicaPartition -> {
-                    revokeReplicaAssignment(instance, replicaPartition);
-                    addMasterAssignment(instance, masterPartition);
-                });
+        int replicaPartition = instanceAssignmentContainer.getReplicaPartitionSet(instance).nextSetBit(0);
+        if (replicaPartition >= 0) {
+            revokeReplicaAssignment(instance, replicaPartition);
+            addMasterAssignment(instance, masterPartition);
+        }
     }
 
     private int getAverageMastersPerInstance() {
@@ -303,19 +291,8 @@ public class AssignmentContainer {
         return instancesSortedByMasterAndAssignmentCounts;
     }
 
-    private Set<String> getInstancesNotAssignedToMaster(Integer partition) {
-        Set<String> instances = new HashSet<>(instanceAssignmentContainer.getInstances());
-        partitionAssignmentContainer.getMasterInstanceForPartition(partition)
-                .ifPresent(instances::remove);
-        return instances;
-    }
-
     private void promoteReplicaToMaster(Integer partition, String instance) {
         partitionAssignmentContainer.promoteReplicaToMaster(instance, partition);
-        instanceAssignmentContainer.promoteReplicaToMaster(
-                instance,
-                new TopicPartition(replicaTopic, partition),
-                new TopicPartition(masterTopic, partition)
-        );
+        instanceAssignmentContainer.promoteReplicaToMaster(instance, partition);
     }
 }

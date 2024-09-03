@@ -1,7 +1,6 @@
 package com.pg.replication.consumer.kafka.assignment.v1;
 
 import lombok.Getter;
-import org.apache.kafka.common.TopicPartition;
 
 import java.util.*;
 
@@ -24,14 +23,14 @@ public class PartitionAssignmentContainer {
         replicaPartitionToInstanceAssignment = new HashMap<>();
     }
 
-    public void addReplicaAssignment(TopicPartition topicPartition, String instance) {
-        replicaPartitionToInstanceAssignment.put(topicPartition.partition(), instance);
-        replicaPartitionsToAssign.clear(topicPartition.partition());
+    public void addReplicaAssignment(String instance, int replicaPartition) {
+        replicaPartitionToInstanceAssignment.put(replicaPartition, instance);
+        replicaPartitionsToAssign.clear(replicaPartition);
     }
 
-    public void addMasterAssignment(TopicPartition topicPartition, String instance) {
-        masterPartitionToInstanceAssignment.put(topicPartition.partition(), instance);
-        masterPartitionsToAssign.clear(topicPartition.partition());
+    public void addMasterAssignment(String instance, int masterPartition) {
+        masterPartitionToInstanceAssignment.put(masterPartition, instance);
+        masterPartitionsToAssign.clear(masterPartition);
     }
 
     public Optional<String> getReplicaInstanceForPartition(Integer partition) {
@@ -50,10 +49,9 @@ public class PartitionAssignmentContainer {
 //        we don't update replicaPartitionsToAssign here as we don't want to assign them straight away, but rather using incremental rebalance
     }
 
-    public void removeMasterPartition(TopicPartition masterPartition) {
-        int partition = masterPartition.partition();
-        masterPartitionToInstanceAssignment.remove(partition);
-        masterPartitionsToAssign.set(partition);
+    public void removeMasterPartition(Integer masterPartition) {
+        masterPartitionToInstanceAssignment.remove(masterPartition);
+        masterPartitionsToAssign.set(masterPartition);
     }
 
     public Queue<Integer> getReplicaPartitionsToAssign() {
@@ -68,8 +66,7 @@ public class PartitionAssignmentContainer {
         return replicasToAssign;
     }
 
-    public void removeReplicaPartition(TopicPartition replicaPartition) {
-        int partition = replicaPartition.partition();
+    public void removeReplicaPartition(Integer partition) {
         replicaPartitionToInstanceAssignment.remove(partition);
         replicaPartitionsToAssign.set(partition);
     }

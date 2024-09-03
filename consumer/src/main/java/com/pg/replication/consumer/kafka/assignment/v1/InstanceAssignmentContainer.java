@@ -15,23 +15,26 @@ import static java.util.Collections.max;
 public class InstanceAssignmentContainer {
 
     private final Integer maxAssignmentsPerInstance;
+    private final Integer masterTopicPartitionCount;
+    private final Integer replicaTopicPartitionCount;
 
-//    fixme bitsets can be used for the 2 first maps here
-    Map<String, Set<TopicPartition>> instanceToMasterPartitionAssignment = new HashMap<>();
-    Map<String, Set<TopicPartition>> instanceToReplicaPartitionAssignment = new HashMap<>();
+    Map<String, BitSet> instanceToMasterPartitionAssignment = new HashMap<>();
+    Map<String, BitSet> instanceToReplicaPartitionAssignment = new HashMap<>();
     @Getter
     Map<String, InstanceAssignmentCount> instanceAssignmentCounter = new HashMap<>();
     Map<String, InstanceConsumers> instanceToConsumers = new HashMap<>();
 
-    public InstanceAssignmentContainer(Integer maxAssignmentsPerInstance) {
+    public InstanceAssignmentContainer(Integer maxAssignmentsPerInstance, Integer masterTopicPartitionCount, Integer replicaTopicPartitionCount) {
+        this.masterTopicPartitionCount = masterTopicPartitionCount;
+        this.replicaTopicPartitionCount = replicaTopicPartitionCount;
         this.maxAssignmentsPerInstance = maxAssignmentsPerInstance;
     }
 
-    public Set<TopicPartition> getMasterPartitions(String instance) {
+    public BitSet getMasterPartitionSet(String instance) {
         return instanceToMasterPartitionAssignment.get(instance);
     }
 
-    public Set<TopicPartition> getReplicaPartitions(String instance) {
+    public BitSet getReplicaPartitionSet(String instance) {
         return instanceToReplicaPartitionAssignment.get(instance);
     }
 
@@ -69,14 +72,18 @@ public class InstanceAssignmentContainer {
         return instanceAssignmentCounter.getOrDefault(instance, InstanceAssignmentCount.first(instance, maxAssignmentsPerInstance)).canIncrement();
     }
 
-    public void addReplicaAssignment(TopicPartition topicPartition, String instance) {
-        if (instanceToReplicaPartitionAssignment.computeIfAbsent(instance, ignore -> new HashSet<>()).add(topicPartition)) {
+    public void addReplicaAssignment(String instance, Integer replicaPartition) {
+        BitSet instanceReplicaSet = instanceToReplicaPartitionAssignment.computeIfAbsent(instance, ignore -> new BitSet(replicaTopicPartitionCount));
+        if (!instanceReplicaSet.get(replicaPartition)) {
+            instanceReplicaSet.set(replicaPartition);
             modifyCounter(instance, InstanceAssignmentCount::incrementReplica);
         }
     }
 
-    public void addMasterAssignment(TopicPartition topicPartition, String instance) {
-        if (instanceToMasterPartitionAssignment.computeIfAbsent(instance, ignore -> new HashSet<>()).add(topicPartition)) {
+    public void addMasterAssignment(String instance, Integer masterPartition) {
+        BitSet instanceMasterSet = instanceToMasterPartitionAssignment.computeIfAbsent(instance, ignore -> new BitSet(masterTopicPartitionCount));
+        if (!instanceMasterSet.get(masterPartition)) {
+            instanceMasterSet.set(masterPartition);
             modifyCounter(instance, InstanceAssignmentCount::incrementMaster);
         }
     }
@@ -86,31 +93,41 @@ public class InstanceAssignmentContainer {
         incrementFunction.accept(instanceAssignmentCount);
     }
 
-    public void promoteReplicaToMaster(String instance, TopicPartition replicaPartition, TopicPartition masterPartition) {
-        instanceToReplicaPartitionAssignment.computeIfAbsent(instance, ignore -> new HashSet<>()).remove(replicaPartition);
-        instanceToMasterPartitionAssignment.computeIfAbsent(instance, ignore -> new HashSet<>()).add(masterPartition);
+    public void promoteReplicaToMaster(String instance, Integer partition) {
+        instanceToReplicaPartitionAssignment.computeIfAbsent(instance, ignore -> new BitSet(replicaTopicPartitionCount)).clear(partition);
+        instanceToMasterPartitionAssignment.computeIfAbsent(instance, ignore -> new BitSet(masterTopicPartitionCount)).set(partition);
         modifyCounter(instance, InstanceAssignmentCount::incrementMasterDecrementReplica);
     }
 
-    public Map<String, ConsumerPartitionAssignor.Assignment> getAssignmentsByConsumer() {
-        Stream<Map.Entry<String, Set<TopicPartition>>> masterConsumerPartitionAssignments = instanceToConsumers.entrySet()
+    public Map<String, ConsumerPartitionAssignor.Assignment> getAssignmentsByConsumer(String masterTopic, String replicaTopic) {
+        Stream<Map.Entry<String, Stream<TopicPartition>>> masterConsumerPartitionAssignments = instanceToConsumers.entrySet()
                 .stream()
                 .filter(e -> e.getValue().masterConsumer != null)
-                .map(e -> Map.entry(e.getValue().masterConsumer, instanceToMasterPartitionAssignment.getOrDefault(e.getKey(), emptySet())));
+                .map(e -> {
+                    BitSet masterPartitionSet = instanceToMasterPartitionAssignment.getOrDefault(e.getKey(), new BitSet(0));
+                    return Map.entry(e.getValue().masterConsumer, getTopicPartitions(masterPartitionSet, masterTopic));
+                });
 
-        Stream<Map.Entry<String, Set<TopicPartition>>> replicaConsumerPartitionAssignments = instanceToConsumers.entrySet()
+        Stream<Map.Entry<String, Stream<TopicPartition>>> replicaConsumerPartitionAssignments = instanceToConsumers.entrySet()
                 .stream()
                 .filter(e -> e.getValue().replicaConsumer != null)
-                .map(e -> Map.entry(e.getValue().replicaConsumer, instanceToReplicaPartitionAssignment.getOrDefault(e.getKey(), emptySet())));
-
+                .map(e -> {
+                    BitSet replicaPartitionSet = instanceToReplicaPartitionAssignment.getOrDefault(e.getKey(), new BitSet(0));
+                    return Map.entry(e.getValue().replicaConsumer, getTopicPartitions(replicaPartitionSet, replicaTopic));
+                });
         return Stream.concat(masterConsumerPartitionAssignments, replicaConsumerPartitionAssignments)
                 .collect(
                         Collectors.groupingBy(Map.Entry::getKey,
-                                Collectors.flatMapping(e -> e.getValue().stream(),
+                                Collectors.flatMapping(Map.Entry::getValue,
                                         Collectors.collectingAndThen(Collectors.toList(),
                                                 ConsumerPartitionAssignor.Assignment::new))
                         )
                 );
+    }
+
+    private Stream<TopicPartition> getTopicPartitions(BitSet set, String topicName) {
+        return set.stream()
+                .mapToObj(partition -> new TopicPartition(topicName, partition));
     }
 
     public Set<String> getInstances() {
@@ -121,14 +138,18 @@ public class InstanceAssignmentContainer {
         return instanceToConsumers.size();
     }
 
-    public void removeMasterPartition(String instance, TopicPartition topicPartition) {
-        if (instanceToMasterPartitionAssignment.get(instance).remove(topicPartition)) {
+    public void removeMasterPartition(String instance, Integer masterPartition) {
+        BitSet instanceMasterSet = instanceToMasterPartitionAssignment.get(instance);
+        if (instanceMasterSet.get(masterPartition)) {
+            instanceMasterSet.clear(masterPartition);
             modifyCounter(instance, InstanceAssignmentCount::decrementMaster);
         }
     }
 
-    public void removeReplicaPartition(String instance, TopicPartition topicPartition) {
-        if (instanceToReplicaPartitionAssignment.get(instance).remove(topicPartition)) {
+    public void removeReplicaPartition(String instance, Integer replicaPartition) {
+        BitSet instanceReplicaSet = instanceToReplicaPartitionAssignment.get(instance);
+        if (instanceReplicaSet.get(replicaPartition)) {
+            instanceReplicaSet.clear(replicaPartition);
             modifyCounter(instance, InstanceAssignmentCount::decrementReplica);
         }
     }
