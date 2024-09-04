@@ -1,6 +1,9 @@
 package com.pg.replication.consumer.kafka.consumer;
 
-import com.pg.replication.common.event.*;
+import com.pg.replication.common.event.PaymentReplicaDeletedEvent;
+import com.pg.replication.common.event.PaymentReplicaEvent;
+import com.pg.replication.common.event.PaymentReplicaUpdatedEvent;
+import com.pg.replication.common.event.PaymentReplicationStartedEvent;
 import com.pg.replication.consumer.partition.PartitionAssignmentService;
 import com.pg.replication.consumer.payment.PaymentEventHandler;
 import com.pg.replication.consumer.replication.ReplicationProcessService;
@@ -17,7 +20,6 @@ import java.util.Collection;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 @Service
 @AllArgsConstructor
@@ -45,7 +47,7 @@ public class PaymentReplicationEventsConsumer implements ConsumerSeekAware {
     @Override
     public void onPartitionsAssigned(Map<TopicPartition, Long> assignments, ConsumerSeekCallback callback) {
         Set<TopicPartition> topicPartitions = assignments.keySet();
-        System.out.println("New replica partitions assigned: " + topicPartitions.toString());
+        System.out.println("New replica partitions assigned: " + topicPartitions);
 
         Set<Integer> replicaPartitions = topicPartitions.stream()
                 .map(TopicPartition::partition)

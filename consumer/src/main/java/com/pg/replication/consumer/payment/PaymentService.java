@@ -2,7 +2,6 @@ package com.pg.replication.consumer.payment;
 
 import com.pg.replication.common.event.PaymentReplicaDeletedEvent;
 import com.pg.replication.common.event.PaymentReplicaUpdatedEvent;
-import com.pg.replication.common.event.PaymentReplicationStartedEvent;
 import com.pg.replication.common.model.Payment;
 import com.pg.replication.common.model.PaymentReplica;
 import com.pg.replication.common.model.PaymentStatus;
@@ -48,8 +47,8 @@ public class PaymentService {
     }
 
     public void updatePayment(Payment payment) {
-        paymentStore.updatePayment(payment);
-        sendPaymentReplicaUpdatedEvent(payment);
+        Payment updatedPayment = paymentStore.updatePayment(payment);
+        sendPaymentReplicaUpdatedEvent(updatedPayment);
     }
 
     public void deletePayment(UUID paymentUuid) {

@@ -8,6 +8,7 @@ import org.apache.kafka.common.TopicPartition;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.listener.ConsumerSeekAware;
 import org.springframework.kafka.support.KafkaHeaders;
+import org.springframework.lang.NonNull;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Service;
@@ -42,8 +43,8 @@ public class PaymentEventsConsumer implements ConsumerSeekAware {
     }
 
     @Override
-    public void onPartitionsAssigned(Map<TopicPartition, Long> assignments, ConsumerSeekCallback callback) {
-        System.out.println("New master partitions assigned: " + assignments.keySet().toString());
+    public void onPartitionsAssigned(Map<TopicPartition, Long> assignments, @NonNull ConsumerSeekCallback callback) {
+        System.out.println("New master partitions assigned: " + assignments.keySet());
 
         Set<Integer> assignedPartitions = assignments.keySet()
                 .stream()

@@ -725,11 +725,6 @@ class ReplicationCooperativeAssignorTest {
         private TopicPartition toReplica(TopicPartition masterPartition) {
             return new TopicPartition(REPLICA_TOPIC, masterPartition.partition());
         }
-
-
-        private TopicPartition toMaster(TopicPartition replicaPartition) {
-            return new TopicPartition(MASTER_TOPIC, replicaPartition.partition());
-        }
     }
 
     @Nested

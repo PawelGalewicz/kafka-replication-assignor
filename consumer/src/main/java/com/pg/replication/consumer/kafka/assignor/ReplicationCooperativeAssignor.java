@@ -11,7 +11,6 @@ import org.apache.kafka.common.TopicPartition;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
-import java.util.stream.Collectors;
 
 public class ReplicationCooperativeAssignor implements ConsumerPartitionAssignor, Configurable {
 

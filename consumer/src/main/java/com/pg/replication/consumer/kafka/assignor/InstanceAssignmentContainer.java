@@ -9,9 +9,6 @@ import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import static java.util.Collections.emptySet;
-import static java.util.Collections.max;
-
 public class InstanceAssignmentContainer {
 
     private final Integer maxAssignmentsPerInstance;
@@ -66,10 +63,6 @@ public class InstanceAssignmentContainer {
         InstanceAssignmentCount initialCount = InstanceAssignmentCount.first(instance, maxAssignmentsPerInstance);
         instanceAssignmentCounter.put(instance, initialCount);
         instanceToConsumers.put(instance, new InstanceConsumers());
-    }
-
-    public boolean canAddAssignment(String instance) {
-        return instanceAssignmentCounter.getOrDefault(instance, InstanceAssignmentCount.first(instance, maxAssignmentsPerInstance)).canIncrement();
     }
 
     public void addReplicaAssignment(String instance, Integer replicaPartition) {
@@ -128,10 +121,6 @@ public class InstanceAssignmentContainer {
     private Stream<TopicPartition> getTopicPartitions(BitSet set, String topicName) {
         return set.stream()
                 .mapToObj(partition -> new TopicPartition(topicName, partition));
-    }
-
-    public Set<String> getInstances() {
-        return instanceAssignmentCounter.keySet();
     }
 
     public int getNumberOfInstances() {

@@ -82,7 +82,7 @@ public class AssignmentContainer {
         Iterator<InstanceAssignmentContainer.InstanceAssignmentCount> instanceCountsDescending = sortedInstances.descendingIterator();
 
         Integer prevMasterCount = -1;
-        Integer prevMostOverworkedReplicaCount = -1;
+        Integer prevMostOverworkedReplicaCount;
         Map.Entry<String, Integer> prevMostAssignedReplicaInstance = null;
         while (instanceCountsDescending.hasNext()) {
             InstanceAssignmentContainer.InstanceAssignmentCount instanceCount = instanceCountsDescending.next();
