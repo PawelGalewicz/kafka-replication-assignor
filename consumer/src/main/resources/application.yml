@@ -15,6 +15,9 @@ spring:
 management:
   endpoints:
     enabled-by-default: true
+  endpoint:
+    health:
+      show-details: "ALWAYS"
 
 application:
   instance:

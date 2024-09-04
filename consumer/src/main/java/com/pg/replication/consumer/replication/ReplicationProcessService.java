@@ -7,6 +7,7 @@ import com.pg.replication.consumer.store.InMemoryReplicationProcessStore;
 import lombok.AllArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.util.Collection;
 import java.util.UUID;
 
 @Service
@@ -36,9 +37,12 @@ public class ReplicationProcessService {
         }
     }
 
-//   fixme connect to health endpoint
     public boolean isReplicationInProgress() {
         return replicationProcessStore.isNotEmpty();
+    }
+
+    public Collection<ReplicationProcess> getCurrentReplicationProcesses() {
+        return replicationProcessStore.getCurrentReplicationProcesses();
     }
 
     private void sendPaymentReplicationStartedEvent(UUID replicationProcessUuid, Integer partition) {
