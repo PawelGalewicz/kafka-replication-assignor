@@ -10,6 +10,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class InstanceAssignmentContainer {
+    private static final BitSet EMPTY_BITSET = new BitSet(0);
 
     private final Integer maxAssignmentsPerInstance;
     private final Integer masterTopicPartitionCount;
@@ -28,11 +29,11 @@ public class InstanceAssignmentContainer {
     }
 
     public BitSet getMasterPartitionSet(String instance) {
-        return instanceToMasterPartitionAssignment.get(instance);
+        return instanceToMasterPartitionAssignment.getOrDefault(instance, EMPTY_BITSET);
     }
 
     public BitSet getReplicaPartitionSet(String instance) {
-        return instanceToReplicaPartitionAssignment.get(instance);
+        return instanceToReplicaPartitionAssignment.getOrDefault(instance, EMPTY_BITSET);
     }
 
     public InstanceAssignmentCount getCount(String instance) {
@@ -97,7 +98,7 @@ public class InstanceAssignmentContainer {
                 .stream()
                 .filter(e -> e.getValue().masterConsumer != null)
                 .map(e -> {
-                    BitSet masterPartitionSet = instanceToMasterPartitionAssignment.getOrDefault(e.getKey(), new BitSet(0));
+                    BitSet masterPartitionSet = instanceToMasterPartitionAssignment.getOrDefault(e.getKey(), EMPTY_BITSET);
                     return Map.entry(e.getValue().masterConsumer, getTopicPartitions(masterPartitionSet, masterTopic));
                 });
 
@@ -105,7 +106,7 @@ public class InstanceAssignmentContainer {
                 .stream()
                 .filter(e -> e.getValue().replicaConsumer != null)
                 .map(e -> {
-                    BitSet replicaPartitionSet = instanceToReplicaPartitionAssignment.getOrDefault(e.getKey(), new BitSet(0));
+                    BitSet replicaPartitionSet = instanceToReplicaPartitionAssignment.getOrDefault(e.getKey(), EMPTY_BITSET);
                     return Map.entry(e.getValue().replicaConsumer, getTopicPartitions(replicaPartitionSet, replicaTopic));
                 });
         return Stream.concat(masterConsumerPartitionAssignments, replicaConsumerPartitionAssignments)

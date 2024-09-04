@@ -2,6 +2,7 @@ kafka:
   topic:
     master: master-topic
     replica: replica-topic
+  group-id: group-consumer
 
 spring:
   application:

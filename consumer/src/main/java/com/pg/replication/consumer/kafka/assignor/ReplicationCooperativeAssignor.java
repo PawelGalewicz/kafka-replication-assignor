@@ -2,7 +2,6 @@ package com.pg.replication.consumer.kafka.assignor;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.SneakyThrows;
-import org.apache.kafka.clients.consumer.ConsumerGroupMetadata;
 import org.apache.kafka.clients.consumer.ConsumerPartitionAssignor;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.Configurable;
@@ -27,12 +26,6 @@ public class ReplicationCooperativeAssignor implements ConsumerPartitionAssignor
     @Override
     public ByteBuffer subscriptionUserData(Set<String> topics) {
         return encodeAssignmentMetadata(assignmentMetadata);
-    }
-
-    @Override
-    public void onAssignment(Assignment assignment, ConsumerGroupMetadata metadata) {
-//        fixme do we need to do something here?
-        ConsumerPartitionAssignor.super.onAssignment(assignment, metadata);
     }
 
     @Override

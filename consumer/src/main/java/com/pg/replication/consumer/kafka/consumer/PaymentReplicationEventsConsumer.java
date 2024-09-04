@@ -12,6 +12,7 @@ import org.apache.kafka.common.TopicPartition;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.listener.ConsumerSeekAware;
 import org.springframework.kafka.support.KafkaHeaders;
+import org.springframework.lang.NonNull;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.messaging.handler.annotation.Payload;
 import org.springframework.stereotype.Service;
@@ -25,11 +26,13 @@ import java.util.stream.Collectors;
 @AllArgsConstructor
 public class PaymentReplicationEventsConsumer implements ConsumerSeekAware {
 
+    public static final String REPLICA_LISTENER_ID = "replica-listener";
+
     private final PaymentEventHandler paymentEventHandler;
     private final ReplicationProcessService replicationProcessService;
     private final PartitionAssignmentService partitionAssignmentService;
 
-    @KafkaListener(topics = "${kafka.topic.replica}", containerFactory = "kafkaListenerContainerFactory")
+    @KafkaListener(topics = "${kafka.topic.replica}", id = REPLICA_LISTENER_ID, groupId = "${kafka.group-id}", containerFactory = "kafkaListenerContainerFactory")
     public void listenToPaymentReplicaEvents(@Payload(required = false) PaymentReplicaEvent event, @Header(KafkaHeaders.RECEIVED_PARTITION) int partition) {
         System.out.println("Received message: " + event + " from replica partition: " + partition);
         handlePaymentEvent(event);
@@ -45,7 +48,13 @@ public class PaymentReplicationEventsConsumer implements ConsumerSeekAware {
     }
 
     @Override
-    public void onPartitionsAssigned(Map<TopicPartition, Long> assignments, ConsumerSeekCallback callback) {
+    public void onPartitionsAssigned(Map<TopicPartition, Long> assignments, @NonNull ConsumerSeekCallback callback) {
+//        it is important not to call seekToBeginning even with empty set as it seems that it will seek to beginning
+//        with all of previously assigned partitions
+        if (assignments.isEmpty()) {
+            return;
+        }
+
         Set<TopicPartition> topicPartitions = assignments.keySet();
         System.out.println("New replica partitions assigned: " + topicPartitions);
 

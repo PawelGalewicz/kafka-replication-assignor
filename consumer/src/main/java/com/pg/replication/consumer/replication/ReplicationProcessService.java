@@ -28,12 +28,11 @@ public class ReplicationProcessService {
         if (replicationProcessStore.containsReplicationProcess(replicationProcess)) {
             replicationProcessStore.removeReplicationProcess(replicationProcess);
             paymentReplicaEventProducer.clearPaymentReplicationEvent(partition, replicationProcessUuid);
-        }
-
-        if (!isReplicationInProgress()) {
+            if (!isReplicationInProgress()) {
 //            if every assigned replica partition was successfully consumed, then the replica node is ready for potential promotion to master,
 //            so we trigger a rebalance to check if it is needed
-            rebalanceService.forceRebalance();
+                rebalanceService.forceRebalance();
+            }
         }
     }
 

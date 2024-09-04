@@ -45,7 +45,6 @@ public class PartitionAssignmentContainer {
         replicaPartitionToInstanceAssignment.remove(partition);
         masterPartitionToInstanceAssignment.put(partition, instance);
         masterPartitionsToAssign.set(partition);
-//        fixme maybe we won't need that later
 //        we don't update replicaPartitionsToAssign here as we don't want to assign them straight away, but rather using incremental rebalance
     }
 

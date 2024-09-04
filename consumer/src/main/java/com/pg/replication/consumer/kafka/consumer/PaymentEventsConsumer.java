@@ -25,7 +25,7 @@ public class PaymentEventsConsumer implements ConsumerSeekAware {
     private final PaymentEventHandler paymentEventHandler;
     private final PartitionAssignmentService partitionAssignmentService;
 
-    @KafkaListener(topics = "${kafka.topic.master}", containerFactory = "kafkaListenerContainerFactory")
+    @KafkaListener(topics = "${kafka.topic.master}", groupId = "${kafka.group-id}", containerFactory = "kafkaListenerContainerFactory")
     public void listenToPaymentEvents(@Payload PaymentEvent event, @Header(KafkaHeaders.RECEIVED_PARTITION) int partition) {
         System.out.println("Received message of type: " + event.getClass().getName() + " from master partition: " + partition);
         handlePaymentEvent(event, partition);
@@ -44,6 +44,10 @@ public class PaymentEventsConsumer implements ConsumerSeekAware {
 
     @Override
     public void onPartitionsAssigned(Map<TopicPartition, Long> assignments, @NonNull ConsumerSeekCallback callback) {
+        if (assignments.isEmpty()) {
+            return;
+        }
+
         System.out.println("New master partitions assigned: " + assignments.keySet());
 
         Set<Integer> assignedPartitions = assignments.keySet()

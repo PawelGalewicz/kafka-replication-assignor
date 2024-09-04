@@ -980,7 +980,7 @@ class ReplicationCooperativeAssignorTest {
     @Nested
     class MasterOptimisationScenarios {
         
-//        fixme add more sophisticated tests for replica optimisations
+//        fixme add more sophisticated tests for master optimisations
         @Test
         @DisplayName("replica instance exists for master optimisation - move master to replica instance and unassign replica")
         void doMasterOptimisationIfPossible() {
