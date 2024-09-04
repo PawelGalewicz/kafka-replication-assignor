@@ -1,4 +1,4 @@
-package com.pg.replication.consumer.kafka.assignment.v1;
+package com.pg.replication.consumer.kafka.assignor;
 
 import org.apache.kafka.common.config.AbstractConfig;
 import org.apache.kafka.common.config.ConfigDef;

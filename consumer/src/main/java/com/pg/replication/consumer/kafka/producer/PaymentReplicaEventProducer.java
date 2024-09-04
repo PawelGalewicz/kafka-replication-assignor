@@ -6,6 +6,7 @@ import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
 import org.springframework.stereotype.Service;
 
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 @Service
@@ -30,6 +31,19 @@ public class PaymentReplicaEventProducer {
                 System.out.println("Sent message=[" + paymentReplicaEvent + "] with offset=[" + result.getRecordMetadata().offset() + "]");
             } else {
                 System.out.println("Unable to send message=[" + paymentReplicaEvent + "] due to : " + ex.getMessage());
+            }
+        });
+    }
+
+    public void clearPaymentReplicationEvent(Integer partition, UUID eventUuid) {
+
+        CompletableFuture<SendResult<String, PaymentReplicaEvent>> future = kafkaTemplate.send(replicationTopicName, partition, eventUuid.toString(), null);
+        future.whenComplete((result, ex) -> {
+
+            if (ex == null) {
+                System.out.println("Cleared message with uuid=[" + eventUuid + "]");
+            } else {
+                System.out.println("Unable to clear message with uuid=[" + eventUuid + "] due to : " + ex.getMessage());
             }
         });
     }

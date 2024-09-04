@@ -1,6 +1,5 @@
-package com.pg.replication.consumer.kafka.assignment.v1;
+package com.pg.replication.consumer.kafka.assignor;
 
-import com.pg.replication.consumer.kafka.assignment.v1.InstanceAssignmentContainer.SortedLinkedList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -10,11 +9,11 @@ import static org.assertj.core.api.Assertions.*;
 
 class InstanceAssignmentContainerTest {
 
-    private SortedLinkedList<Integer> list;
+    private InstanceAssignmentContainer.SortedLinkedList<Integer> list;
 
     @BeforeEach
     public void setup() {
-        list = new SortedLinkedList<>(Integer::compareTo);
+        list = new InstanceAssignmentContainer.SortedLinkedList<>(Integer::compareTo);
     }
 
     @Test

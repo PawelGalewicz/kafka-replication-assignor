@@ -1,4 +1,4 @@
-package com.pg.replication.consumer.kafka.assignment.v1;
+package com.pg.replication.consumer.kafka.assignor;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.SneakyThrows;
@@ -32,8 +32,7 @@ public class ReplicationCooperativeAssignor implements ConsumerPartitionAssignor
 
     @Override
     public void onAssignment(Assignment assignment, ConsumerGroupMetadata metadata) {
-        String assignmentString = assignment.partitions().stream().map(TopicPartition::toString).collect(Collectors.joining(", "));
-        System.out.println("Assigned partitions: " + assignmentString);
+//        fixme do we need to do something here?
         ConsumerPartitionAssignor.super.onAssignment(assignment, metadata);
     }
 

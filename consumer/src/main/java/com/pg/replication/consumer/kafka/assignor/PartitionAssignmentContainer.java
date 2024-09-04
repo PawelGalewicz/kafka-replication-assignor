@@ -1,4 +1,4 @@
-package com.pg.replication.consumer.kafka.assignment.v1;
+package com.pg.replication.consumer.kafka.assignor;
 
 import lombok.Getter;
 

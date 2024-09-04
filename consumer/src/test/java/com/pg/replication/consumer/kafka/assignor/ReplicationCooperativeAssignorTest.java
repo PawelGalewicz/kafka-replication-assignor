@@ -1,4 +1,4 @@
-package com.pg.replication.consumer.kafka.assignment.v1;
+package com.pg.replication.consumer.kafka.assignor;
 
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.lang3.stream.IntStreams;
@@ -13,7 +13,6 @@ import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.stream.Collectors;
 
-import static com.pg.replication.consumer.kafka.assignment.v1.ReplicationCooperativeAssignorConfig.MAX_ASSIGNMENTS_PER_INSTANCE;
 import static java.util.Collections.*;
 import static org.assertj.core.api.Assertions.*;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -26,7 +25,7 @@ class ReplicationCooperativeAssignorTest {
     static Map<String, Object> testConfig = Map.of(
             ReplicationCooperativeAssignorConfig.MASTER_TOPIC, MASTER_TOPIC,
             ReplicationCooperativeAssignorConfig.REPLICA_TOPIC, REPLICA_TOPIC,
-            MAX_ASSIGNMENTS_PER_INSTANCE, "1000"
+            ReplicationCooperativeAssignorConfig.MAX_ASSIGNMENTS_PER_INSTANCE, "1000"
     );
 
     ReplicationCooperativeAssignor assignor;
@@ -1038,7 +1037,7 @@ class ReplicationCooperativeAssignorTest {
 
     void givenMaxAssignmentsPerInstance(Integer value) {
         Map<String, Object> newConfig = new HashMap<>(testConfig);
-        newConfig.put(MAX_ASSIGNMENTS_PER_INSTANCE, value.toString());
+        newConfig.put(ReplicationCooperativeAssignorConfig.MAX_ASSIGNMENTS_PER_INSTANCE, value.toString());
         assignor.configure(newConfig);
     }
 

@@ -1,8 +1,8 @@
 package com.pg.replication.consumer.config;
 
 import com.pg.replication.common.event.PaymentEvent;
-import com.pg.replication.consumer.kafka.assignment.v1.ReplicationCooperativeAssignor;
-import com.pg.replication.consumer.kafka.assignment.v1.ReplicationCooperativeAssignorConfig;
+import com.pg.replication.consumer.kafka.assignor.ReplicationCooperativeAssignor;
+import com.pg.replication.consumer.kafka.assignor.ReplicationCooperativeAssignorConfig;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.springframework.beans.factory.annotation.Value;
@@ -65,9 +65,6 @@ public class KafkaConsumerConfig {
 
     @Bean
     public ConcurrentKafkaListenerContainerFactory<String, PaymentEvent> kafkaListenerContainerFactory() {
-        ConcurrentKafkaListenerContainerFactory<String, PaymentEvent> factory = kafkaListenerContainerFactory("consumer");
-//        fixme custom rebalance listener, maybe it could help
-//        factory.getContainerProperties().setConsumerRebalanceListener();
-        return factory;
+        return kafkaListenerContainerFactory("consumer");
     }
 }

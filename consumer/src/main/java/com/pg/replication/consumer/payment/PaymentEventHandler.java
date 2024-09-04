@@ -1,6 +1,7 @@
 package com.pg.replication.consumer.payment;
 
 import com.pg.replication.common.event.*;
+import com.pg.replication.consumer.replication.ReplicationProcessService;
 import lombok.AllArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -9,6 +10,7 @@ import org.springframework.stereotype.Service;
 public class PaymentEventHandler {
     private final PaymentService paymentService;
     private final PaymentReplicaService paymentReplicaService;
+    private final ReplicationProcessService replicationProcessService;
 
     public void handlePaymentCreatedEvent(PaymentCreatedEvent paymentCreatedEvent, Integer sourcePartition) {
         paymentService.createPayment(paymentCreatedEvent.paymentUuid(), paymentCreatedEvent.from(), paymentCreatedEvent.to(), paymentCreatedEvent.amount(), sourcePartition);
@@ -36,5 +38,9 @@ public class PaymentEventHandler {
 
     public void handlePaymentReplicaDeletedEvent(PaymentReplicaDeletedEvent paymentReplicaDeletedEvent) {
         paymentReplicaService.deleteReplicaPayment(paymentReplicaDeletedEvent.paymentUuid());
+    }
+
+    public void handlePaymentReplicationStartedEvent(PaymentReplicationStartedEvent paymentReplicationStartedEvent) {
+        replicationProcessService.stopReplicationProcess(paymentReplicationStartedEvent.replicationProcessUuid(), paymentReplicationStartedEvent.paymentSourcePartition());
     }
 }

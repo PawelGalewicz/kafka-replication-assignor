@@ -1,11 +1,9 @@
-package com.pg.replication.consumer.kafka.assignment.v1;
+package com.pg.replication.consumer.kafka.assignor;
 
-import com.pg.replication.consumer.kafka.assignment.v1.InstanceAssignmentContainer.InstanceAssignmentCount;
 import org.apache.kafka.clients.consumer.ConsumerPartitionAssignor;
 import org.apache.kafka.common.TopicPartition;
 
 import java.util.*;
-import java.util.stream.Collectors;
 
 import static java.util.Map.entry;
 
@@ -79,15 +77,15 @@ public class AssignmentContainer {
     }
 
     private boolean tryOptimiseMasterAssignments() {
-        TreeSet<InstanceAssignmentCount> sortedInstances = getInstanceCountsSortedFromLeastToMostMastersAndAssignments();
-        InstanceAssignmentCount leastAssigned = sortedInstances.getFirst();
-        Iterator<InstanceAssignmentCount> instanceCountsDescending = sortedInstances.descendingIterator();
+        TreeSet<InstanceAssignmentContainer.InstanceAssignmentCount> sortedInstances = getInstanceCountsSortedFromLeastToMostMastersAndAssignments();
+        InstanceAssignmentContainer.InstanceAssignmentCount leastAssigned = sortedInstances.getFirst();
+        Iterator<InstanceAssignmentContainer.InstanceAssignmentCount> instanceCountsDescending = sortedInstances.descendingIterator();
 
         Integer prevMasterCount = -1;
         Integer prevMostOverworkedReplicaCount = -1;
         Map.Entry<String, Integer> prevMostAssignedReplicaInstance = null;
         while (instanceCountsDescending.hasNext()) {
-            InstanceAssignmentCount instanceCount = instanceCountsDescending.next();
+            InstanceAssignmentContainer.InstanceAssignmentCount instanceCount = instanceCountsDescending.next();
 
 //            If the previous instance has a larger master imbalance then this one, then we should resolve it first,
 //            but if the imbalance is the same, then maybe a master from this instance could be optimised faster
@@ -109,7 +107,7 @@ public class AssignmentContainer {
             for (int partition = masterPartitionsSet.nextSetBit(0); partition >= 0; partition = masterPartitionsSet.nextSetBit(partition + 1)) {
                 Optional<String> replicaInstanceForPartition = partitionAssignmentContainer.getReplicaInstanceForPartition(partition);
                 if (replicaInstanceForPartition.isPresent()) {
-                    InstanceAssignmentCount replicaCount = instanceAssignmentContainer.getCount(replicaInstanceForPartition.get());
+                    InstanceAssignmentContainer.InstanceAssignmentCount replicaCount = instanceAssignmentContainer.getCount(replicaInstanceForPartition.get());
                     if (instanceCount.getMasterCounter() - replicaCount.getMasterCounter() > 1) {
 //                        If the replica instance has at least 2 masters less, then we can safely move this master there
                         revokeMasterPartition(instanceCount.getInstance(), partition);
@@ -131,13 +129,13 @@ public class AssignmentContainer {
     }
 
     private void tryOptimiseReplicaAssignments() {
-        TreeSet<InstanceAssignmentCount> sortedInstances = getInstanceCountsSortedFromLeastToMostAssignmentsAndMasters();
-        InstanceAssignmentCount leastAssigned = sortedInstances.getFirst();
+        TreeSet<InstanceAssignmentContainer.InstanceAssignmentCount> sortedInstances = getInstanceCountsSortedFromLeastToMostAssignmentsAndMasters();
+        InstanceAssignmentContainer.InstanceAssignmentCount leastAssigned = sortedInstances.getFirst();
 
-        Iterator<InstanceAssignmentCount> instanceCountsDescending = sortedInstances.descendingIterator();
+        Iterator<InstanceAssignmentContainer.InstanceAssignmentCount> instanceCountsDescending = sortedInstances.descendingIterator();
 
         while (instanceCountsDescending.hasNext()) {
-            InstanceAssignmentCount instanceCount = instanceCountsDescending.next();
+            InstanceAssignmentContainer.InstanceAssignmentCount instanceCount = instanceCountsDescending.next();
             int assignmentImbalance = instanceCount.getReplicaCounter() - leastAssigned.getReplicaCounter();
             if (assignmentImbalance < 1) {
 //                If there is no imbalance on this instance, then we can safely break the while loop as the instances are sorted,
@@ -192,14 +190,14 @@ public class AssignmentContainer {
             }
         }
 
-        SortedSet<InstanceAssignmentCount> instanceCountsSortedFromLeastToMostAssigned = getInstanceCountsSortedFromLeastToMostMastersAndAssignments();
-        Iterator<InstanceAssignmentCount> instancesIterator = instanceCountsSortedFromLeastToMostAssigned.iterator();
+        SortedSet<InstanceAssignmentContainer.InstanceAssignmentCount> instanceCountsSortedFromLeastToMostAssigned = getInstanceCountsSortedFromLeastToMostMastersAndAssignments();
+        Iterator<InstanceAssignmentContainer.InstanceAssignmentCount> instancesIterator = instanceCountsSortedFromLeastToMostAssigned.iterator();
         int averageMastersPerInstance = getAverageMastersPerInstance();
         int averageReplicasPerInstance = getAverageReplicasPerInstance();
 
         Set<Integer> replicasUnableToAssignToPrevInstance = new HashSet<>();
         while (instancesIterator.hasNext()) {
-            InstanceAssignmentCount instanceCount = instancesIterator.next();
+            InstanceAssignmentContainer.InstanceAssignmentCount instanceCount = instancesIterator.next();
 
 //            If there are masters to assign, assign them up until the average number of masters that should be assigned to every instance for an even split
             while (!mastersWithoutReplicasToAssign.isEmpty()) {
@@ -279,14 +277,14 @@ public class AssignmentContainer {
         return Math.ceilDiv(replicaTopicPartitionCount, numberOfInstances);
     }
 
-    private TreeSet<InstanceAssignmentCount> getInstanceCountsSortedFromLeastToMostMastersAndAssignments() {
-        TreeSet<InstanceAssignmentCount> instancesSortedByMasterAndAssignmentCounts = new TreeSet<>(InstanceAssignmentCount.masterThenAssignmentCountComparator());
+    private TreeSet<InstanceAssignmentContainer.InstanceAssignmentCount> getInstanceCountsSortedFromLeastToMostMastersAndAssignments() {
+        TreeSet<InstanceAssignmentContainer.InstanceAssignmentCount> instancesSortedByMasterAndAssignmentCounts = new TreeSet<>(InstanceAssignmentContainer.InstanceAssignmentCount.masterThenAssignmentCountComparator());
         instancesSortedByMasterAndAssignmentCounts.addAll(instanceAssignmentContainer.getInstanceAssignmentCounter().values());
         return instancesSortedByMasterAndAssignmentCounts;
     }
 
-    private TreeSet<InstanceAssignmentCount> getInstanceCountsSortedFromLeastToMostAssignmentsAndMasters() {
-        TreeSet<InstanceAssignmentCount> instancesSortedByMasterAndAssignmentCounts = new TreeSet<>(InstanceAssignmentCount.assignmentThenMasterCountComparator());
+    private TreeSet<InstanceAssignmentContainer.InstanceAssignmentCount> getInstanceCountsSortedFromLeastToMostAssignmentsAndMasters() {
+        TreeSet<InstanceAssignmentContainer.InstanceAssignmentCount> instancesSortedByMasterAndAssignmentCounts = new TreeSet<>(InstanceAssignmentContainer.InstanceAssignmentCount.assignmentThenMasterCountComparator());
         instancesSortedByMasterAndAssignmentCounts.addAll(instanceAssignmentContainer.getInstanceAssignmentCounter().values());
         return instancesSortedByMasterAndAssignmentCounts;
     }

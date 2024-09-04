@@ -1,9 +1,13 @@
 package com.pg.replication.consumer.payment;
 
+import com.pg.replication.common.event.PaymentReplicaDeletedEvent;
+import com.pg.replication.common.event.PaymentReplicaUpdatedEvent;
+import com.pg.replication.common.event.PaymentReplicationStartedEvent;
 import com.pg.replication.common.model.Payment;
 import com.pg.replication.common.model.PaymentReplica;
 import com.pg.replication.common.model.PaymentStatus;
 import com.pg.replication.consumer.kafka.producer.PaymentReplicaEventProducer;
+import com.pg.replication.consumer.store.InMemoryPaymentStore;
 import lombok.AllArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -49,15 +53,15 @@ public class PaymentService {
     }
 
     public void deletePayment(UUID paymentUuid) {
-        Payment deletedPayment = paymentStore.deletePayment(paymentUuid);
-        sendPaymentReplicaDeletedEvent(deletedPayment);
+        paymentStore.deletePayment(paymentUuid)
+                .ifPresent(this::sendPaymentReplicaDeletedEvent);
     }
 
     private void sendPaymentReplicaUpdatedEvent(Payment payment) {
         PaymentReplica paymentReplica = PaymentReplica.fromPayment(payment);
-//        paymentReplicaEventProducer.sendPaymentReplicationEvent(new PaymentReplicaUpdatedEvent(payment.getPaymentUuid(), paymentReplica));
+        paymentReplicaEventProducer.sendPaymentReplicationEvent(new PaymentReplicaUpdatedEvent(payment.getPaymentUuid(), paymentReplica));
     }
     private void sendPaymentReplicaDeletedEvent(Payment payment) {
-//        paymentReplicaEventProducer.sendPaymentReplicationEvent(new PaymentReplicaDeletedEvent(payment.getPaymentUuid(), payment.getSourcePartition()));
+        paymentReplicaEventProducer.sendPaymentReplicationEvent(new PaymentReplicaDeletedEvent(payment.getPaymentUuid(), payment.getSourcePartition()));
     }
 }

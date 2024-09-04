@@ -4,4 +4,4 @@ spring:
 
 application:
   instance:
-    id: "local-producer"
+    id: "local-consumer-${server.port}"
