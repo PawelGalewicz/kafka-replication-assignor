@@ -1,6 +1,7 @@
 package com.pg.replication.consumer.kafka.producer;
 
 import com.pg.replication.common.event.PaymentReplicaEvent;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
@@ -10,6 +11,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 @Service
+@Slf4j
 public class PaymentReplicaEventProducer {
 
     private final KafkaTemplate<String, PaymentReplicaEvent> kafkaTemplate;
@@ -28,9 +30,9 @@ public class PaymentReplicaEventProducer {
         future.whenComplete((result, ex) -> {
 
             if (ex == null) {
-                System.out.println("Sent message=[" + paymentReplicaEvent + "] with offset=[" + result.getRecordMetadata().offset() + "]");
+                log.debug("Sent message=[{}] with offset=[{}]", paymentReplicaEvent, result.getRecordMetadata().offset());
             } else {
-                System.out.println("Unable to send message=[" + paymentReplicaEvent + "] due to : " + ex.getMessage());
+                log.error("Unable to send message=[{}] due to : {}", paymentReplicaEvent, ex.getMessage());
             }
         });
     }
@@ -41,9 +43,9 @@ public class PaymentReplicaEventProducer {
         future.whenComplete((result, ex) -> {
 
             if (ex == null) {
-                System.out.println("Cleared message with uuid=[" + eventUuid + "]");
+                log.debug("Cleared message with uuid=[{}]", eventUuid);
             } else {
-                System.out.println("Unable to clear message with uuid=[" + eventUuid + "] due to : " + ex.getMessage());
+                log.error("Unable to clear message with uuid=[{}] due to : {}", eventUuid, ex.getMessage());
             }
         });
     }

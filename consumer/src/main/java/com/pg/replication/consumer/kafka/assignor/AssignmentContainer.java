@@ -1,5 +1,6 @@
 package com.pg.replication.consumer.kafka.assignor;
 
+import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerPartitionAssignor;
 import org.apache.kafka.common.TopicPartition;
 
@@ -7,6 +8,7 @@ import java.util.*;
 
 import static java.util.Map.entry;
 
+@Slf4j
 public class AssignmentContainer {
     private final String masterTopic;
     private final String replicaTopic;
@@ -40,29 +42,31 @@ public class AssignmentContainer {
 
     public void addAssignment(TopicPartition topicPartition, String instance) {
         if (masterTopic.equals(topicPartition.topic())) {
-            addMasterAssignment(instance, topicPartition);
+            addMasterAssignment(instance, topicPartition.partition());
         } else if (replicaTopic.equals(topicPartition.topic())) {
-            addReplicaAssignment(topicPartition, instance);
+            addReplicaAssignment(instance, topicPartition.partition());
         }
     }
 
-    private void addMasterAssignment(String instance, TopicPartition topicPartition) {
-        partitionAssignmentContainer.addMasterAssignment(instance, topicPartition.partition());
-        instanceAssignmentContainer.addMasterAssignment(instance, topicPartition.partition());
+    private void addMasterAssignment(String instance, Integer masterPartition) {
+        partitionAssignmentContainer.addMasterAssignment(instance, masterPartition);
+        instanceAssignmentContainer.addMasterAssignment(instance, masterPartition);
     }
 
-    private void addReplicaAssignment(TopicPartition topicPartition, String instance) {
-        partitionAssignmentContainer.addReplicaAssignment(instance, topicPartition.partition());
-        instanceAssignmentContainer.addReplicaAssignment(instance, topicPartition.partition());
+    private void addReplicaAssignment(String instance, Integer replicaPartition) {
+        partitionAssignmentContainer.addReplicaAssignment(instance, replicaPartition);
+        instanceAssignmentContainer.addReplicaAssignment(instance, replicaPartition);
     }
 
     public Map<String, ConsumerPartitionAssignor.Assignment> assign() {
         if (partitionAssignmentContainer.hasPendingAssignments()) {
 //            If there are partitions that need assignment, assign them and return. Optimisations can be done in the next rebalance
+            log.debug("There are partitions that are not assigned, will try to assign them");
             assignPendingPartitions();
         } else {
 //            If all partitions are already assigned, we can see if there are any optimisations necessary. We will do them one at a time
 //            to make sure reassignments keep the state consistent
+            log.debug("All partitions are assigned, will try to optimise current assignment");
             optimiseAssignment();
         }
 
@@ -92,7 +96,7 @@ public class AssignmentContainer {
             if (instanceCount.getMasterCounter() < prevMasterCount && prevMostAssignedReplicaInstance != null) {
 //                fixme do we treat any master optimisation from following steps as better then the replica optimisation, if so, then we can move this after the while loop
 //                To resolve previous master imbalance, we need to move the most overworked replica first, so we unassign it
-                revokeReplicaAssignment(prevMostAssignedReplicaInstance.getKey(), prevMostAssignedReplicaInstance.getValue());
+                revokeReplicaPartition(prevMostAssignedReplicaInstance.getKey(), prevMostAssignedReplicaInstance.getValue());
                 return true;
             }
 
@@ -118,7 +122,7 @@ public class AssignmentContainer {
                         prevMostAssignedReplicaInstance = entry(replicaCount.getInstance(), partition);
                     }
                 } else {
-//                    fixme log that this master has no replica assigned and there were no assignments to be done, so sth is wrong
+                    log.error("Replica partition {} is not assigned anywhere even though it should have been at this stage", partition);
                 }
             }
 
@@ -158,7 +162,7 @@ public class AssignmentContainer {
                     .findFirst();
 
             if (replicaPartition.isPresent()) {
-                revokeReplicaAssignment(instanceCount.getInstance(), replicaPartition.getAsInt());
+                revokeReplicaPartition(instanceCount.getInstance(), replicaPartition.getAsInt());
                 return;
             }
         }
@@ -169,7 +173,7 @@ public class AssignmentContainer {
         instanceAssignmentContainer.removeMasterPartition(instance, masterPartition);
     }
 
-    private void revokeReplicaAssignment(String instance, Integer replicaPartition) {
+    private void revokeReplicaPartition(String instance, Integer replicaPartition) {
         partitionAssignmentContainer.removeReplicaPartition(replicaPartition);
         instanceAssignmentContainer.removeReplicaPartition(instance, replicaPartition);
     }
@@ -178,17 +182,21 @@ public class AssignmentContainer {
         Queue<Integer> mastersWithoutReplicasToAssign = new LinkedList<>();
         Queue<Integer> replicaPartitionsToAssign = partitionAssignmentContainer.getReplicaPartitionsToAssign();
 
+        log.debug("Assigning master partitions");
+
         BitSet masterPartitionsToAssign = (BitSet) partitionAssignmentContainer.getMasterPartitionsToAssign().clone();
         for (int masterPartition = masterPartitionsToAssign.nextSetBit(0);
              masterPartition >= 0;
              masterPartition = masterPartitionsToAssign.nextSetBit(masterPartition + 1)) {
             Optional<String> masterCandidateFromReplica = partitionAssignmentContainer.getReplicaInstanceForPartition(masterPartition);
             if (masterCandidateFromReplica.isPresent()) {
-                promoteReplicaToMaster(masterPartition, masterCandidateFromReplica.get());
+                promoteReplicaToMaster(masterCandidateFromReplica.get(), masterPartition);
             } else {
                 mastersWithoutReplicasToAssign.add(masterPartition);
             }
         }
+
+        log.debug("The following master partitions were not assigned due to no replicas available: {}", mastersWithoutReplicasToAssign);
 
         SortedSet<InstanceAssignmentContainer.InstanceAssignmentCount> instanceCountsSortedFromLeastToMostAssigned = getInstanceCountsSortedFromLeastToMostMastersAndAssignments();
         Iterator<InstanceAssignmentContainer.InstanceAssignmentCount> instancesIterator = instanceCountsSortedFromLeastToMostAssigned.iterator();
@@ -209,10 +217,10 @@ public class AssignmentContainer {
 
                 if (instanceCount.canIncrement()) {
 //                    If space available, just assign a master to the instance
-                    addMasterAssignment(instanceCount.getInstance(), new TopicPartition(masterTopic, masterPartition));
+                    addMasterAssignment(instanceCount.getInstance(), masterPartition);
                 } else if (instanceCount.getReplicaCounter() > 0) {
 //                    If no more space on the instance, remove one of replicas and assign a master in its place
-                    forceMasterAssignment(new TopicPartition(masterTopic, masterPartition), instanceCount.getInstance());
+                    forceMasterAssignment(instanceCount.getInstance(), masterPartition);
                 }
             }
 
@@ -237,8 +245,8 @@ public class AssignmentContainer {
 
                 if (!isInstanceMasterOfThisReplicaPartition) {
 //                        We can't assign a replica to the instance that already has a master
-                    addReplicaAssignment(new TopicPartition(replicaTopic, replicaPartition), instanceCount.getInstance());
-                } else if (instancesIterator.hasNext()) {
+                    addReplicaAssignment(instanceCount.getInstance(), replicaPartition);
+                } else {
 //                        If there are more instances, this replica can be assigned to another one
                     replicasUnableToAssignToPrevInstance.add(replicaPartition);
                 }
@@ -251,18 +259,20 @@ public class AssignmentContainer {
         }
 
         if (!mastersWithoutReplicasToAssign.isEmpty()) {
-//                fixme add warning logs
+            log.warn("The following master partitions were not assigned anywhere: [{}]", mastersWithoutReplicasToAssign);
         }
 
-        if (!replicaPartitionsToAssign.isEmpty()) {
-//                fixme add warning logs
+        if (!replicaPartitionsToAssign.isEmpty() || !replicasUnableToAssignToPrevInstance.isEmpty()) {
+            replicaPartitionsToAssign.addAll(replicasUnableToAssignToPrevInstance);
+            log.warn("The following replica partitions were not assigned anywhere: [{}]", replicaPartitionsToAssign);
         }
     }
 
-    private void forceMasterAssignment(TopicPartition masterPartition, String instance) {
+    private void forceMasterAssignment(String instance, Integer masterPartition) {
         int replicaPartition = instanceAssignmentContainer.getReplicaPartitionSet(instance).nextSetBit(0);
         if (replicaPartition >= 0) {
-            revokeReplicaAssignment(instance, replicaPartition);
+            log.info("Revoking replica partition {} from {} instance to assign master partition {}", replicaPartition, instance, masterPartition);
+            revokeReplicaPartition(instance, replicaPartition);
             addMasterAssignment(instance, masterPartition);
         }
     }
@@ -289,7 +299,8 @@ public class AssignmentContainer {
         return instancesSortedByMasterAndAssignmentCounts;
     }
 
-    private void promoteReplicaToMaster(Integer partition, String instance) {
+    private void promoteReplicaToMaster(String instance, Integer partition) {
+        log.info("Promoting {} instance from replica to master of {} partition", instance, partition);
         partitionAssignmentContainer.promoteReplicaToMaster(instance, partition);
         instanceAssignmentContainer.promoteReplicaToMaster(instance, partition);
     }

@@ -22,3 +22,7 @@ management:
 application:
   instance:
     max_assignments: 10
+
+logging:
+  level:
+    com.pg: debug

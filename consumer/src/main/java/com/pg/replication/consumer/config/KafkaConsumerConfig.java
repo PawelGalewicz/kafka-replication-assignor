@@ -37,7 +37,6 @@ public class KafkaConsumerConfig {
     private String maxInstanceAssignment;
 
     public ConsumerFactory<String, PaymentEvent> consumerFactory(String groupId) {
-        System.out.println("Instance id: " + instanceId);
         Map<String, Object> props = new HashMap<>();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapAddress);
         props.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);

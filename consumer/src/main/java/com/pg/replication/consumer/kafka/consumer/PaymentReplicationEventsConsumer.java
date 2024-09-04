@@ -8,6 +8,7 @@ import com.pg.replication.consumer.partition.PartitionAssignmentService;
 import com.pg.replication.consumer.payment.PaymentEventHandler;
 import com.pg.replication.consumer.replication.ReplicationProcessService;
 import lombok.AllArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.common.TopicPartition;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.listener.ConsumerSeekAware;
@@ -23,6 +24,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
+@Slf4j
 @AllArgsConstructor
 public class PaymentReplicationEventsConsumer implements ConsumerSeekAware {
 
@@ -34,7 +36,7 @@ public class PaymentReplicationEventsConsumer implements ConsumerSeekAware {
 
     @KafkaListener(topics = "${kafka.topic.replica}", id = REPLICA_LISTENER_ID, groupId = "${kafka.group-id}", containerFactory = "kafkaListenerContainerFactory")
     public void listenToPaymentReplicaEvents(@Payload(required = false) PaymentReplicaEvent event, @Header(KafkaHeaders.RECEIVED_PARTITION) int partition) {
-        System.out.println("Received message: " + event + " from replica partition: " + partition);
+        log.debug("Received message: {} from replica partition: {}", event, partition);
         handlePaymentEvent(event);
     }
 
@@ -43,7 +45,8 @@ public class PaymentReplicationEventsConsumer implements ConsumerSeekAware {
             case PaymentReplicaUpdatedEvent e -> paymentEventHandler.handlePaymentReplicaUpdatedEvent(e);
             case PaymentReplicaDeletedEvent e -> paymentEventHandler.handlePaymentReplicaDeletedEvent(e);
             case PaymentReplicationStartedEvent e -> paymentEventHandler.handlePaymentReplicationStartedEvent(e);
-            case null, default -> System.out.println("null event");
+            case null -> log.warn("null event received, might be a delete of replication event");
+            default -> log.warn("unexpected payment event received: {}", paymentEvent);
         }
     }
 
@@ -56,7 +59,6 @@ public class PaymentReplicationEventsConsumer implements ConsumerSeekAware {
         }
 
         Set<TopicPartition> topicPartitions = assignments.keySet();
-        System.out.println("New replica partitions assigned: " + topicPartitions);
 
         Set<Integer> replicaPartitions = topicPartitions.stream()
                 .map(TopicPartition::partition)
@@ -70,8 +72,6 @@ public class PaymentReplicationEventsConsumer implements ConsumerSeekAware {
 
     @Override
     public void onPartitionsRevoked(Collection<TopicPartition> partitions) {
-        System.out.println("Replica partitions revoked: " + partitions.toString());
-
         Set<Integer> revokedPartitions = partitions.stream()
                 .map(TopicPartition::partition)
                 .collect(Collectors.toSet());

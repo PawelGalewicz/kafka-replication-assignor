@@ -1,6 +1,7 @@
 package com.pg.replication.producer.kafka.producer;
 
 import com.pg.replication.common.event.PaymentEvent;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
@@ -9,6 +10,7 @@ import org.springframework.stereotype.Service;
 import java.util.concurrent.CompletableFuture;
 
 @Service
+@Slf4j
 public class PaymentEventProducer {
 
     private final KafkaTemplate<String, PaymentEvent> kafkaTemplate;
@@ -27,9 +29,9 @@ public class PaymentEventProducer {
         future.whenComplete((result, ex) -> {
 
             if (ex == null) {
-                System.out.println("Sent message=[" + paymentEvent + "] with offset=[" + result.getRecordMetadata().offset() + "]");
+                log.debug("Sent message=[{}] with offset=[{}]", paymentEvent, result.getRecordMetadata().offset());
             } else {
-                System.out.println("Unable to send message=[" + paymentEvent + "] due to : " + ex.getMessage());
+                log.error("Unable to send message=[{}] due to : {}", paymentEvent, ex.getMessage());
             }
         });
     }

@@ -18,9 +18,8 @@ public class PartitionAssignmentContainer {
         masterPartitionsToAssign.set(0, masterPartitionsCount);
         replicaPartitionsToAssign = new BitSet(replicaPartitionsCount);
         replicaPartitionsToAssign.set(0, replicaPartitionsCount);
-//        fixme maybe the size can be estimated
-        masterPartitionToInstanceAssignment = new HashMap<>();
-        replicaPartitionToInstanceAssignment = new HashMap<>();
+        masterPartitionToInstanceAssignment = new HashMap<>(masterPartitionsCount);
+        replicaPartitionToInstanceAssignment = new HashMap<>(replicaPartitionsCount);
     }
 
     public void addReplicaAssignment(String instance, int replicaPartition) {

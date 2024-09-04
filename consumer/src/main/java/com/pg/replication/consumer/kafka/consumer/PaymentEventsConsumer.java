@@ -4,6 +4,7 @@ import com.pg.replication.common.event.*;
 import com.pg.replication.consumer.partition.PartitionAssignmentService;
 import com.pg.replication.consumer.payment.PaymentEventHandler;
 import lombok.AllArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.common.TopicPartition;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.listener.ConsumerSeekAware;
@@ -19,6 +20,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
+@Slf4j
 @AllArgsConstructor
 public class PaymentEventsConsumer implements ConsumerSeekAware {
 
@@ -27,7 +29,7 @@ public class PaymentEventsConsumer implements ConsumerSeekAware {
 
     @KafkaListener(topics = "${kafka.topic.master}", groupId = "${kafka.group-id}", containerFactory = "kafkaListenerContainerFactory")
     public void listenToPaymentEvents(@Payload PaymentEvent event, @Header(KafkaHeaders.RECEIVED_PARTITION) int partition) {
-        System.out.println("Received message of type: " + event.getClass().getName() + " from master partition: " + partition);
+        log.debug("Received message {} from master partition: {}", event, partition);
         handlePaymentEvent(event, partition);
     }
 
@@ -38,7 +40,8 @@ public class PaymentEventsConsumer implements ConsumerSeekAware {
             case PaymentClearedEvent e -> paymentEventHandler.handlePaymentClearedEvent(e);
             case PaymentAmountChangedEvent e -> paymentEventHandler.handlePaymentAmountChangedEvent(e);
             case PaymentFinishedEvent e -> paymentEventHandler.handlePaymentFinishedEvent(e);
-            case null, default -> System.out.println("null event");
+            case null -> log.warn("unexpected null event received");
+            default -> log.warn("unexpected payment event received: {}", paymentEvent);
         }
     }
 
@@ -47,8 +50,6 @@ public class PaymentEventsConsumer implements ConsumerSeekAware {
         if (assignments.isEmpty()) {
             return;
         }
-
-        System.out.println("New master partitions assigned: " + assignments.keySet());
 
         Set<Integer> assignedPartitions = assignments.keySet()
                 .stream()
@@ -60,8 +61,6 @@ public class PaymentEventsConsumer implements ConsumerSeekAware {
 
     @Override
     public void onPartitionsRevoked(Collection<TopicPartition> partitions) {
-        System.out.println("Master partitions revoked: " + partitions.toString());
-
         Set<Integer> revokedPartitions = partitions
                 .stream()
                 .map(TopicPartition::partition)
