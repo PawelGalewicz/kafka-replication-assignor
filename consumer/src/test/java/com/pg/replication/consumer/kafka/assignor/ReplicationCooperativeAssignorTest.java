@@ -10,6 +10,7 @@ import org.assertj.core.api.Condition;
 import org.junit.jupiter.api.*;
 
 import java.nio.ByteBuffer;
+import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -1026,6 +1027,97 @@ class ReplicationCooperativeAssignorTest {
         }
     }
 
+    @Nested
+//    @Disabled
+    class InstanceDuplicateScenarios {
+
+        @Test
+        @DisplayName("duplicated instance exists - revoke replicas from original instance and replicas of all masters that are assigned to the original instance")
+        void moveReplicasFromOriginalIfDuplicateExists() {
+//        given
+            Integer masterPartitionsCount = 2;
+            Integer replicaPartitionsCount = 2;
+            String instance1Id = "instance1";
+            List<TopicPartition> masterPartitions = masterPartitions(masterPartitionsCount);
+            List<TopicPartition> replicaPartitions = replicaPartitions(replicaPartitionsCount);
+
+            ConsumerSubscription instance1ReplicaSubscription = replicaConsumer(instance1Id, List.of(replicaPartitions.get(0)));
+            ConsumerSubscription instance1MasterSubscription = masterConsumer(instance1Id, List.of(masterPartitions.get(1)));
+
+            String instance2 = "instance2";
+            ConsumerSubscription instance2ReplicaSubscription = replicaConsumer(instance2, List.of(replicaPartitions.get(1)));
+            ConsumerSubscription instance2MasterSubscription = masterConsumer(instance2, List.of(masterPartitions.get(0)));
+
+            ConsumerSubscription duplicateInstance1ReplicaSubscription = replicaConsumer(instance1Id, emptyList());
+            ConsumerSubscription duplicateInstance1MasterSubscription = masterConsumer(instance1Id, emptyList());
+
+            Cluster cluster = cluster(masterPartitionsCount, replicaPartitionsCount);
+            ConsumerPartitionAssignor.GroupSubscription groupSubscription = groupSubscription(
+                    instance1ReplicaSubscription, instance1MasterSubscription,
+                    instance2ReplicaSubscription, instance2MasterSubscription,
+                    duplicateInstance1ReplicaSubscription, duplicateInstance1MasterSubscription
+            );
+
+//        when
+            ConsumerPartitionAssignor.GroupAssignment assignment = assignor.assign(cluster, groupSubscription);
+
+//        then
+            assertNotNull(assignment);
+            assertNotNull(assignment.groupAssignment());
+            assertThat(assignment.groupAssignment().get(instance1ReplicaSubscription.consumer).partitions()).containsExactlyInAnyOrder(replicaPartitions.get(0));
+            assertThat(assignment.groupAssignment().get(instance1MasterSubscription.consumer).partitions()).containsExactlyInAnyOrder(masterPartitions.get(1));
+
+            assertThat(assignment.groupAssignment().get(instance2ReplicaSubscription.consumer).partitions()).isEmpty();
+            assertThat(assignment.groupAssignment().get(instance2MasterSubscription.consumer).partitions()).containsExactlyInAnyOrder(masterPartitions.get(0));
+
+            assertThat(assignment.groupAssignment().get(duplicateInstance1ReplicaSubscription.consumer).partitions()).isEmpty();
+            assertThat(assignment.groupAssignment().get(duplicateInstance1MasterSubscription.consumer).partitions()).isEmpty();
+        }
+
+        @Test
+        @DisplayName("duplicated instance exists - assign pending replicas to duplicate for which masters are assigned to original ")
+        void assignReplicasOfOriginalMasterToDuplicateIfDuplicateExists() {
+//        given
+            Integer masterPartitionsCount = 2;
+            Integer replicaPartitionsCount = 2;
+            String instance1Id = "instance1";
+            List<TopicPartition> masterPartitions = masterPartitions(masterPartitionsCount);
+            List<TopicPartition> replicaPartitions = replicaPartitions(replicaPartitionsCount);
+
+            ConsumerSubscription instance1ReplicaSubscription = replicaConsumer(instance1Id, List.of(replicaPartitions.get(0)));
+            ConsumerSubscription instance1MasterSubscription = masterConsumer(instance1Id, List.of(masterPartitions.get(1)));
+
+            String instance2 = "instance2";
+            ConsumerSubscription instance2ReplicaSubscription = replicaConsumer(instance2, List.of());
+            ConsumerSubscription instance2MasterSubscription = masterConsumer(instance2, List.of(masterPartitions.get(0)));
+
+            ConsumerSubscription duplicateInstance1ReplicaSubscription = replicaConsumer(instance1Id, emptyList());
+            ConsumerSubscription duplicateInstance1MasterSubscription = masterConsumer(instance1Id, emptyList());
+
+            Cluster cluster = cluster(masterPartitionsCount, replicaPartitionsCount);
+            ConsumerPartitionAssignor.GroupSubscription groupSubscription = groupSubscription(
+                    instance1ReplicaSubscription, instance1MasterSubscription,
+                    instance2ReplicaSubscription, instance2MasterSubscription,
+                    duplicateInstance1ReplicaSubscription, duplicateInstance1MasterSubscription
+            );
+
+//        when
+            ConsumerPartitionAssignor.GroupAssignment assignment = assignor.assign(cluster, groupSubscription);
+
+//        then
+            assertNotNull(assignment);
+            assertNotNull(assignment.groupAssignment());
+            assertThat(assignment.groupAssignment().get(instance1ReplicaSubscription.consumer).partitions()).containsExactlyInAnyOrder(replicaPartitions.get(0));
+            assertThat(assignment.groupAssignment().get(instance1MasterSubscription.consumer).partitions()).containsExactlyInAnyOrder(masterPartitions.get(1));
+
+            assertThat(assignment.groupAssignment().get(instance2ReplicaSubscription.consumer).partitions()).isEmpty();
+            assertThat(assignment.groupAssignment().get(instance2MasterSubscription.consumer).partitions()).containsExactlyInAnyOrder(masterPartitions.get(0));
+
+            assertThat(assignment.groupAssignment().get(duplicateInstance1ReplicaSubscription.consumer).partitions()).containsExactlyInAnyOrder(replicaPartitions.get(1));
+            assertThat(assignment.groupAssignment().get(duplicateInstance1MasterSubscription.consumer).partitions()).isEmpty();
+        }
+    }
+
     private static String randomString() {
         return RandomStringUtils.randomAlphabetic(10);
     }
@@ -1046,10 +1138,11 @@ class ReplicationCooperativeAssignorTest {
 
     ConsumerSubscription consumer(String instance, String topic, List<TopicPartition> ownedPartitions) {
         List<String> topics = singletonList(topic);
-        AssignmentMetadata assignmentMetadata = new AssignmentMetadata(instance);
+        Instant currentInstant = Instant.now();
+        AssignmentMetadata assignmentMetadata = new AssignmentMetadata(instance, currentInstant);
         ByteBuffer userData = ReplicationCooperativeAssignor.encodeAssignmentMetadata(assignmentMetadata);
         ConsumerPartitionAssignor.Subscription subscription = new ConsumerPartitionAssignor.Subscription(topics, userData, ownedPartitions);
-        return new ConsumerSubscription(instance + "_" + topic + "_consumer", subscription);
+        return new ConsumerSubscription(instance + "_" + topic + "_consumer_" + currentInstant.toString(), subscription);
     }
 
     ConsumerPartitionAssignor.GroupSubscription groupSubscription(ConsumerSubscription... subscriptions) {

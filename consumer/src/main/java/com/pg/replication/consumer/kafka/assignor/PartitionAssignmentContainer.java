@@ -11,6 +11,7 @@ public class PartitionAssignmentContainer {
     private final Map<Integer, String> replicaPartitionToInstanceAssignment;
     @Getter
     private final BitSet masterPartitionsToAssign;
+    @Getter
     private final BitSet replicaPartitionsToAssign;
 
     public PartitionAssignmentContainer(Integer masterPartitionsCount, Integer replicaPartitionsCount) {
@@ -44,24 +45,11 @@ public class PartitionAssignmentContainer {
         replicaPartitionToInstanceAssignment.remove(partition);
         masterPartitionToInstanceAssignment.put(partition, instance);
         masterPartitionsToAssign.set(partition);
-//        we don't update replicaPartitionsToAssign here as we don't want to assign them straight away, but rather using incremental rebalance
     }
 
     public void removeMasterPartition(Integer masterPartition) {
         masterPartitionToInstanceAssignment.remove(masterPartition);
         masterPartitionsToAssign.set(masterPartition);
-    }
-
-    public Queue<Integer> getReplicaPartitionsToAssign() {
-        Queue<Integer> replicasToAssign = new LinkedList<>();
-
-        for (int replicaPartition = replicaPartitionsToAssign.nextSetBit(0);
-             replicaPartition >= 0;
-             replicaPartition = replicaPartitionsToAssign.nextSetBit(replicaPartition + 1)) {
-            replicasToAssign.add(replicaPartition);
-        }
-
-        return replicasToAssign;
     }
 
     public void removeReplicaPartition(Integer partition) {

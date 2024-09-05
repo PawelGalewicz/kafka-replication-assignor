@@ -1,0 +1,28 @@
+kafka:
+  topic:
+    master: master-topic
+    replica: replica-topic
+  group-id: group-consumer
+
+spring:
+  application:
+    name: consumer
+  kafka:
+    consumer:
+      properties:
+        spring.json.trusted.packages: "com.pg.replication-assignor.common.event"
+
+management:
+  endpoints:
+    enabled-by-default: true
+  endpoint:
+    health:
+      show-details: "ALWAYS"
+
+application:
+  instance:
+    max_assignments: 10
+
+logging:
+  level:
+    com.pg: debug

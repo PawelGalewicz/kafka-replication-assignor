@@ -1,6 +1,8 @@
 package com.pg.replication.consumer.kafka.assignor;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import lombok.AllArgsConstructor;
 import lombok.SneakyThrows;
 import org.apache.kafka.clients.consumer.ConsumerPartitionAssignor;
 import org.apache.kafka.common.Cluster;
@@ -9,11 +11,12 @@ import org.apache.kafka.common.TopicPartition;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.*;
 
 public class ReplicationCooperativeAssignor implements ConsumerPartitionAssignor, Configurable {
 
-    private static final ObjectMapper mapper = new ObjectMapper();
+    private static final ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
 
     ReplicationCooperativeAssignorConfig config;
     AssignmentMetadata assignmentMetadata;
@@ -46,10 +49,16 @@ public class ReplicationCooperativeAssignor implements ConsumerPartitionAssignor
                 config.getReplicaTopic(),
                 config.getMaxAssignmentsPerInstance(), masterTopicPartitionCount, replicaTopicPartitionCount);
 
-        for (Map.Entry<String, Subscription> consumerSubscription : groupSubscription.groupSubscription().entrySet()) {
-            String consumer = consumerSubscription.getKey();
-            Subscription subscription = consumerSubscription.getValue();
-            String instance = decodeAssignmentMetadata(subscription.userData()).getInstance();
+        List<SubscriptionWithMetadata> subscriptionList = groupSubscription.groupSubscription().entrySet()
+                .stream()
+                .map(e -> buildSubscriptionWithMetadata(e.getKey(), e.getValue()))
+                .sorted(SubscriptionWithMetadata.createdAtComparator())
+                .toList();
+
+        for (SubscriptionWithMetadata subscriptionWithMetadata : subscriptionList) {
+            Subscription subscription = subscriptionWithMetadata.subscription;
+            String instance = subscriptionWithMetadata.assignmentMetadata.instance;
+            String consumer = subscriptionWithMetadata.consumer;
             List<String> topics = subscription.topics();
             assignmentContainer.addInstanceConsumer(instance, consumer, new HashSet<>(topics));
 
@@ -57,7 +66,13 @@ public class ReplicationCooperativeAssignor implements ConsumerPartitionAssignor
                 assignmentContainer.addAssignment(topicPartition, instance);
             }
         }
+
         return assignmentContainer;
+    }
+
+    private static SubscriptionWithMetadata buildSubscriptionWithMetadata(String consumer, Subscription subscription) {
+        AssignmentMetadata assignmentMetadata = decodeAssignmentMetadata(subscription.userData());
+        return new SubscriptionWithMetadata(consumer, subscription, assignmentMetadata);
     }
 
     @Override
@@ -68,7 +83,7 @@ public class ReplicationCooperativeAssignor implements ConsumerPartitionAssignor
     @Override
     public void configure(Map<String, ?> configs) {
         this.config = new ReplicationCooperativeAssignorConfig(configs);
-        this.assignmentMetadata = new AssignmentMetadata(this.config.getInstanceId());
+        this.assignmentMetadata = new AssignmentMetadata(this.config.getInstanceId(), Instant.now());
     }
 
     @SneakyThrows
@@ -81,5 +96,18 @@ public class ReplicationCooperativeAssignor implements ConsumerPartitionAssignor
     protected static AssignmentMetadata decodeAssignmentMetadata(ByteBuffer byteBuffer) {
         String userDataString = StandardCharsets.UTF_8.decode(byteBuffer).toString();
         return mapper.readValue(userDataString, AssignmentMetadata.class);
+    }
+
+
+    @AllArgsConstructor
+    private static final class SubscriptionWithMetadata {
+        String consumer;
+        Subscription subscription;
+        AssignmentMetadata assignmentMetadata;
+
+        static Comparator<SubscriptionWithMetadata> createdAtComparator() {
+            return Comparator.comparing(s -> s.assignmentMetadata.instanceCreatedAt);
+        }
+
     }
 }

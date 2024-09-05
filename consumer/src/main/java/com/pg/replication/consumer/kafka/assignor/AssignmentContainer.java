@@ -64,32 +64,61 @@ public class AssignmentContainer {
             log.debug("There are partitions that are not assigned, will try to assign them");
             assignPendingPartitions();
         } else {
-//            If all partitions are already assigned, we can see if there are any optimisations necessary. We will do them one at a time
-//            to make sure reassignments keep the state consistent
+//            If all partitions are already assigned, we can see if there are any optimisations necessary.
             log.debug("All partitions are assigned, will try to optimise current assignment");
             optimiseAssignment();
         }
 
-        return instanceAssignmentContainer.getAssignmentsByConsumer(masterTopic, replicaTopic);
+        return instanceAssignmentContainer.buildAssignmentsByConsumer(masterTopic, replicaTopic);
     }
 //
     private void optimiseAssignment() {
-        boolean isMasterOptimised = tryOptimiseMasterAssignments();
-        if (!isMasterOptimised) {
-            tryOptimiseReplicaAssignments();
+//        We want to do one optimisation at a time to make sure reassignments keep the state consistent
+        if (tryOptimiseDuplicateInstanceAssignments()) {
+            return;
         }
+
+        if (tryOptimiseMasterAssignments()) {
+            return;
+        }
+
+        tryOptimiseReplicaAssignments();
+    }
+
+    private boolean tryOptimiseDuplicateInstanceAssignments() {
+        Set<String> instancesWithDuplicates = instanceAssignmentContainer.getInstancesWithDuplicates();
+        if (instancesWithDuplicates.isEmpty()) {
+            return false;
+        }
+
+        for (String instance : instancesWithDuplicates) {
+            instanceAssignmentContainer.getMasterPartitionSet(instance)
+                    .stream()
+                    .forEach(partition -> {
+                        Optional<String> replicaInstanceForPartition = partitionAssignmentContainer.getReplicaInstanceForPartition(partition);
+
+                        if (replicaInstanceForPartition.isPresent()) {
+                            revokeReplicaPartition(replicaInstanceForPartition.get(), partition);
+                        } else {
+                            instanceAssignmentContainer.addReplicaPartitionToDuplicate(instance, partition);
+                        }
+                    });
+        }
+
+        return true;
+
     }
 
     private boolean tryOptimiseMasterAssignments() {
-        TreeSet<InstanceAssignmentContainer.InstanceAssignmentCount> sortedInstances = getInstanceCountsSortedFromLeastToMostMastersAndAssignments();
-        InstanceAssignmentContainer.InstanceAssignmentCount leastAssigned = sortedInstances.getFirst();
-        Iterator<InstanceAssignmentContainer.InstanceAssignmentCount> instanceCountsDescending = sortedInstances.descendingIterator();
+        TreeSet<InstanceAssignmentContainer.AssignmentCount> sortedInstances = getInstanceCountsSortedFromLeastToMostMastersAndAssignments();
+        InstanceAssignmentContainer.AssignmentCount leastAssigned = sortedInstances.getFirst();
+        Iterator<InstanceAssignmentContainer.AssignmentCount> instanceCountsDescending = sortedInstances.descendingIterator();
 
         Integer prevMasterCount = -1;
         Integer prevMostOverworkedReplicaCount;
         Map.Entry<String, Integer> prevMostAssignedReplicaInstance = null;
         while (instanceCountsDescending.hasNext()) {
-            InstanceAssignmentContainer.InstanceAssignmentCount instanceCount = instanceCountsDescending.next();
+            InstanceAssignmentContainer.AssignmentCount instanceCount = instanceCountsDescending.next();
 
 //            If the previous instance has a larger master imbalance then this one, then we should resolve it first,
 //            but if the imbalance is the same, then maybe a master from this instance could be optimised faster
@@ -111,7 +140,7 @@ public class AssignmentContainer {
             for (int partition = masterPartitionsSet.nextSetBit(0); partition >= 0; partition = masterPartitionsSet.nextSetBit(partition + 1)) {
                 Optional<String> replicaInstanceForPartition = partitionAssignmentContainer.getReplicaInstanceForPartition(partition);
                 if (replicaInstanceForPartition.isPresent()) {
-                    InstanceAssignmentContainer.InstanceAssignmentCount replicaCount = instanceAssignmentContainer.getCount(replicaInstanceForPartition.get());
+                    InstanceAssignmentContainer.AssignmentCount replicaCount = instanceAssignmentContainer.getCount(replicaInstanceForPartition.get());
                     if (instanceCount.getMasterCounter() - replicaCount.getMasterCounter() > 1) {
 //                        If the replica instance has at least 2 masters less, then we can safely move this master there
                         revokeMasterPartition(instanceCount.getInstance(), partition);
@@ -133,13 +162,13 @@ public class AssignmentContainer {
     }
 
     private void tryOptimiseReplicaAssignments() {
-        TreeSet<InstanceAssignmentContainer.InstanceAssignmentCount> sortedInstances = getInstanceCountsSortedFromLeastToMostAssignmentsAndMasters();
-        InstanceAssignmentContainer.InstanceAssignmentCount leastAssigned = sortedInstances.getFirst();
+        TreeSet<InstanceAssignmentContainer.AssignmentCount> sortedInstances = getInstanceCountsSortedFromLeastToMostAssignmentsAndMasters();
+        InstanceAssignmentContainer.AssignmentCount leastAssigned = sortedInstances.getFirst();
 
-        Iterator<InstanceAssignmentContainer.InstanceAssignmentCount> instanceCountsDescending = sortedInstances.descendingIterator();
+        Iterator<InstanceAssignmentContainer.AssignmentCount> instanceCountsDescending = sortedInstances.descendingIterator();
 
         while (instanceCountsDescending.hasNext()) {
-            InstanceAssignmentContainer.InstanceAssignmentCount instanceCount = instanceCountsDescending.next();
+            InstanceAssignmentContainer.AssignmentCount instanceCount = instanceCountsDescending.next();
             int assignmentImbalance = instanceCount.getReplicaCounter() - leastAssigned.getReplicaCounter();
             if (assignmentImbalance < 1) {
 //                If there is no imbalance on this instance, then we can safely break the while loop as the instances are sorted,
@@ -180,7 +209,7 @@ public class AssignmentContainer {
 
     private void assignPendingPartitions() {
         Queue<Integer> mastersWithoutReplicasToAssign = new LinkedList<>();
-        Queue<Integer> replicaPartitionsToAssign = partitionAssignmentContainer.getReplicaPartitionsToAssign();
+        BitSet replicaPartitionsToAssign = partitionAssignmentContainer.getReplicaPartitionsToAssign();
 
         log.debug("Assigning master partitions");
 
@@ -198,14 +227,29 @@ public class AssignmentContainer {
 
         log.debug("The following master partitions were not assigned due to no replicas available: {}", mastersWithoutReplicasToAssign);
 
-        SortedSet<InstanceAssignmentContainer.InstanceAssignmentCount> instanceCountsSortedFromLeastToMostAssigned = getInstanceCountsSortedFromLeastToMostMastersAndAssignments();
-        Iterator<InstanceAssignmentContainer.InstanceAssignmentCount> instancesIterator = instanceCountsSortedFromLeastToMostAssigned.iterator();
+//        If there are duplicated instances present, it's most likely a rolling update is in place - we should then assign to duplicates any pending replicas for masters
+//        assigned to original instance
+        for (String duplicatedInstance : instanceAssignmentContainer.getInstancesWithDuplicates()) {
+            BitSet masterPartitionSet = instanceAssignmentContainer.getMasterPartitionSet(duplicatedInstance);
+            BitSet replicaPartitionsToAssignToInstanceDuplicate = (BitSet) replicaPartitionsToAssign.clone();
+            replicaPartitionsToAssignToInstanceDuplicate.and(masterPartitionSet);
+            replicaPartitionsToAssignToInstanceDuplicate.stream().forEach(partition -> {
+                instanceAssignmentContainer.addReplicaPartitionToDuplicate(duplicatedInstance, partition);
+                replicaPartitionsToAssign.clear(partition);
+            });
+        }
+
+        log.debug("Assigning replicas and unassigned masters to instances");
+
+        SortedSet<InstanceAssignmentContainer.AssignmentCount> instanceCountsSortedFromLeastToMostAssigned = getInstanceCountsSortedFromLeastToMostMastersAndAssignments();
+        Iterator<InstanceAssignmentContainer.AssignmentCount> instancesIterator = instanceCountsSortedFromLeastToMostAssigned.iterator();
         int averageMastersPerInstance = getAverageMastersPerInstance();
         int averageReplicasPerInstance = getAverageReplicasPerInstance();
 
         Set<Integer> replicasUnableToAssignToPrevInstance = new HashSet<>();
         while (instancesIterator.hasNext()) {
-            InstanceAssignmentContainer.InstanceAssignmentCount instanceCount = instancesIterator.next();
+            InstanceAssignmentContainer.AssignmentCount instanceCount = instancesIterator.next();
+            String instance = instanceCount.getInstance();
 
 //            If there are masters to assign, assign them up until the average number of masters that should be assigned to every instance for an even split
             while (!mastersWithoutReplicasToAssign.isEmpty()) {
@@ -217,15 +261,15 @@ public class AssignmentContainer {
 
                 if (instanceCount.canIncrement()) {
 //                    If space available, just assign a master to the instance
-                    addMasterAssignment(instanceCount.getInstance(), masterPartition);
+                    addMasterAssignment(instance, masterPartition);
                 } else if (instanceCount.getReplicaCounter() > 0) {
 //                    If no more space on the instance, remove one of replicas and assign a master in its place
-                    forceMasterAssignment(instanceCount.getInstance(), masterPartition);
+                    forceMasterAssignment(instance, masterPartition);
                 }
             }
 
 //            If there's still capacity on the instance, fill it with replicas
-            replicaPartitionsToAssign.addAll(replicasUnableToAssignToPrevInstance);
+            replicasUnableToAssignToPrevInstance.forEach(replicaPartitionsToAssign::set);
             replicasUnableToAssignToPrevInstance.clear();
             while (instanceCount.canIncrement()) {
                 if (instanceCount.getReplicaCounter() >= averageReplicasPerInstance) {
@@ -238,21 +282,23 @@ public class AssignmentContainer {
                     break;
                 }
 
-                Integer replicaPartition = replicaPartitionsToAssign.poll();
+                Integer replicaPartition = replicaPartitionsToAssign.nextSetBit(0);
+                replicaPartitionsToAssign.clear(replicaPartition);
+
                 Boolean isInstanceMasterOfThisReplicaPartition = partitionAssignmentContainer.getMasterInstanceForPartition(replicaPartition)
-                        .map(master -> master.equals(instanceCount.getInstance()))
+                        .map(master -> master.equals(instance))
                         .orElse(Boolean.FALSE);
 
                 if (!isInstanceMasterOfThisReplicaPartition) {
-//                        We can't assign a replica to the instance that already has a master
-                    addReplicaAssignment(instanceCount.getInstance(), replicaPartition);
+//                    We can't assign a replica to the instance that already has a master of that same partition
+                    addReplicaAssignment(instance, replicaPartition);
                 } else {
-//                        If there are more instances, this replica can be assigned to another one
+//                    If that is the case, this replica can be assigned to the next instance in the iterator
                     replicasUnableToAssignToPrevInstance.add(replicaPartition);
                 }
 
             }
-//                If nothing more to assign, it is safe to return here
+//            If nothing more to assign, it is safe to return here
             if (masterPartitionsToAssign.isEmpty() && replicaPartitionsToAssign.isEmpty()) {
                 return;
             }
@@ -263,7 +309,7 @@ public class AssignmentContainer {
         }
 
         if (!replicaPartitionsToAssign.isEmpty() || !replicasUnableToAssignToPrevInstance.isEmpty()) {
-            replicaPartitionsToAssign.addAll(replicasUnableToAssignToPrevInstance);
+            replicasUnableToAssignToPrevInstance.forEach(replicaPartitionsToAssign::set);
             log.warn("The following replica partitions were not assigned anywhere: [{}]", replicaPartitionsToAssign);
         }
     }
@@ -287,15 +333,15 @@ public class AssignmentContainer {
         return Math.ceilDiv(replicaTopicPartitionCount, numberOfInstances);
     }
 
-    private TreeSet<InstanceAssignmentContainer.InstanceAssignmentCount> getInstanceCountsSortedFromLeastToMostMastersAndAssignments() {
-        TreeSet<InstanceAssignmentContainer.InstanceAssignmentCount> instancesSortedByMasterAndAssignmentCounts = new TreeSet<>(InstanceAssignmentContainer.InstanceAssignmentCount.masterThenAssignmentCountComparator());
-        instancesSortedByMasterAndAssignmentCounts.addAll(instanceAssignmentContainer.getInstanceAssignmentCounter().values());
+    private TreeSet<InstanceAssignmentContainer.AssignmentCount> getInstanceCountsSortedFromLeastToMostMastersAndAssignments() {
+        TreeSet<InstanceAssignmentContainer.AssignmentCount> instancesSortedByMasterAndAssignmentCounts = new TreeSet<>(InstanceAssignmentContainer.AssignmentCount.masterThenAssignmentCountComparator());
+        instancesSortedByMasterAndAssignmentCounts.addAll(instanceAssignmentContainer.getInstanceAssignmentCounterValues());
         return instancesSortedByMasterAndAssignmentCounts;
     }
 
-    private TreeSet<InstanceAssignmentContainer.InstanceAssignmentCount> getInstanceCountsSortedFromLeastToMostAssignmentsAndMasters() {
-        TreeSet<InstanceAssignmentContainer.InstanceAssignmentCount> instancesSortedByMasterAndAssignmentCounts = new TreeSet<>(InstanceAssignmentContainer.InstanceAssignmentCount.assignmentThenMasterCountComparator());
-        instancesSortedByMasterAndAssignmentCounts.addAll(instanceAssignmentContainer.getInstanceAssignmentCounter().values());
+    private TreeSet<InstanceAssignmentContainer.AssignmentCount> getInstanceCountsSortedFromLeastToMostAssignmentsAndMasters() {
+        TreeSet<InstanceAssignmentContainer.AssignmentCount> instancesSortedByMasterAndAssignmentCounts = new TreeSet<>(InstanceAssignmentContainer.AssignmentCount.assignmentThenMasterCountComparator());
+        instancesSortedByMasterAndAssignmentCounts.addAll(instanceAssignmentContainer.getInstanceAssignmentCounterValues());
         return instancesSortedByMasterAndAssignmentCounts;
     }
 
