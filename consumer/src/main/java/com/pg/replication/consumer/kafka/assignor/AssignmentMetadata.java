@@ -6,7 +6,6 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.io.Serializable;
-import java.time.Instant;
 
 @NoArgsConstructor
 @AllArgsConstructor
@@ -14,5 +13,4 @@ import java.time.Instant;
 @Getter
 public class AssignmentMetadata implements Serializable {
     public String instance;
-    public Instant instanceCreatedAt;
 }

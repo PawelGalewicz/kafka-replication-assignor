@@ -74,39 +74,11 @@ public class AssignmentContainer {
 //
     private void optimiseAssignment() {
 //        We want to do one optimisation at a time to make sure reassignments keep the state consistent
-        if (tryOptimiseDuplicateInstanceAssignments()) {
-            return;
-        }
-
         if (tryOptimiseMasterAssignments()) {
             return;
         }
 
         tryOptimiseReplicaAssignments();
-    }
-
-    private boolean tryOptimiseDuplicateInstanceAssignments() {
-        Set<String> instancesWithDuplicates = instanceAssignmentContainer.getInstancesWithDuplicates();
-        if (instancesWithDuplicates.isEmpty()) {
-            return false;
-        }
-
-        for (String instance : instancesWithDuplicates) {
-            instanceAssignmentContainer.getMasterPartitionSet(instance)
-                    .stream()
-                    .forEach(partition -> {
-                        Optional<String> replicaInstanceForPartition = partitionAssignmentContainer.getReplicaInstanceForPartition(partition);
-
-                        if (replicaInstanceForPartition.isPresent()) {
-                            revokeReplicaPartition(replicaInstanceForPartition.get(), partition);
-                        } else {
-                            instanceAssignmentContainer.addReplicaPartitionToDuplicate(instance, partition);
-                        }
-                    });
-        }
-
-        return true;
-
     }
 
     private boolean tryOptimiseMasterAssignments() {
@@ -226,18 +198,6 @@ public class AssignmentContainer {
         }
 
         log.debug("The following master partitions were not assigned due to no replicas available: {}", mastersWithoutReplicasToAssign);
-
-//        If there are duplicated instances present, it's most likely a rolling update is in place - we should then assign to duplicates any pending replicas for masters
-//        assigned to original instance
-        for (String duplicatedInstance : instanceAssignmentContainer.getInstancesWithDuplicates()) {
-            BitSet masterPartitionSet = instanceAssignmentContainer.getMasterPartitionSet(duplicatedInstance);
-            BitSet replicaPartitionsToAssignToInstanceDuplicate = (BitSet) replicaPartitionsToAssign.clone();
-            replicaPartitionsToAssignToInstanceDuplicate.and(masterPartitionSet);
-            replicaPartitionsToAssignToInstanceDuplicate.stream().forEach(partition -> {
-                instanceAssignmentContainer.addReplicaPartitionToDuplicate(duplicatedInstance, partition);
-                replicaPartitionsToAssign.clear(partition);
-            });
-        }
 
         log.debug("Assigning replicas and unassigned masters to instances");
 
