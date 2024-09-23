@@ -19,4 +19,3 @@ public class PaymentsController {
         return paymentService.getPaymentByUuid(uuid);
     }
 }
-    

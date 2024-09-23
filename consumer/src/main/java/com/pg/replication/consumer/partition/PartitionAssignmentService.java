@@ -20,7 +20,7 @@ public class PartitionAssignmentService {
         handlePreviouslyRevokedReplicas(masterPartitions);
     }
 
-    public void addAssignedReplicaPartitions(Collection<Integer> replicaPartitions) {
+    public void handleAssignedReplicaPartitions(Collection<Integer> replicaPartitions) {
         handlePreviouslyRevokedMasters(replicaPartitions);
     }
 

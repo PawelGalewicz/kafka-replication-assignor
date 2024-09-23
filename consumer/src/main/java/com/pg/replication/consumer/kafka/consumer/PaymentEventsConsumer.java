@@ -61,6 +61,10 @@ public class PaymentEventsConsumer implements ConsumerSeekAware {
 
     @Override
     public void onPartitionsRevoked(Collection<TopicPartition> partitions) {
+        if (partitions.isEmpty()) {
+            return;
+        }
+
         Set<Integer> revokedPartitions = partitions
                 .stream()
                 .map(TopicPartition::partition)

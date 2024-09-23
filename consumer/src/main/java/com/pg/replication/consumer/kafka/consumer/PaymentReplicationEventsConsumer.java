@@ -65,13 +65,17 @@ public class PaymentReplicationEventsConsumer implements ConsumerSeekAware {
                 .collect(Collectors.toSet());
 
         replicaPartitions.forEach(replicationProcessService::startReplicationProcess);
-        partitionAssignmentService.addAssignedReplicaPartitions(replicaPartitions);
+        partitionAssignmentService.handleAssignedReplicaPartitions(replicaPartitions);
 
         callback.seekToBeginning(topicPartitions);
     }
 
     @Override
     public void onPartitionsRevoked(Collection<TopicPartition> partitions) {
+        if (partitions.isEmpty()) {
+            return;
+        }
+
         Set<Integer> revokedPartitions = partitions.stream()
                 .map(TopicPartition::partition)
                 .collect(Collectors.toSet());

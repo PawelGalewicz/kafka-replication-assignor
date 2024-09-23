@@ -51,7 +51,7 @@ public class ReplicationCooperativeAssignor implements ConsumerPartitionAssignor
             Subscription subscription = consumerSubscription.getValue();
             String instance = decodeAssignmentMetadata(subscription.userData()).getInstance();
             List<String> topics = subscription.topics();
-            assignmentContainer.addInstanceConsumer(instance, consumer, new HashSet<>(topics));
+            assignmentContainer.addInstanceConsumer(instance, consumer, topics);
 
             for (TopicPartition topicPartition : subscription.ownedPartitions()) {
                 assignmentContainer.addAssignment(topicPartition, instance);
