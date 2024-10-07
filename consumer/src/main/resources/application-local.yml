@@ -5,3 +5,12 @@ spring:
 application:
   instance:
     id: "local-consumer-${server.port}"
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "*"
+  endpoint:
+    shutdown:
+      enabled: true

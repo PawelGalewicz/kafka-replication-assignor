@@ -1,6 +1,7 @@
 package com.pg.replication.consumer.kafka.assignor;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pg.replication.consumer.lifecycle.ApplicationStateContext;
 import lombok.SneakyThrows;
 import org.apache.kafka.clients.consumer.ConsumerPartitionAssignor;
 import org.apache.kafka.common.Cluster;
@@ -16,7 +17,7 @@ public class ReplicationCooperativeAssignor implements ConsumerPartitionAssignor
     private static final ObjectMapper mapper = new ObjectMapper();
 
     ReplicationCooperativeAssignorConfig config;
-    AssignmentMetadata assignmentMetadata;
+    String instanceId;
 
     @Override
     public List<RebalanceProtocol> supportedProtocols() {
@@ -25,7 +26,12 @@ public class ReplicationCooperativeAssignor implements ConsumerPartitionAssignor
 
     @Override
     public ByteBuffer subscriptionUserData(Set<String> topics) {
-        return encodeAssignmentMetadata(assignmentMetadata);
+        AssignmentMetadata metadata = AssignmentMetadata.builder()
+                .instance(instanceId)
+                .state(ApplicationStateContext.getState())
+                .build();
+
+        return encodeAssignmentMetadata(metadata);
     }
 
     @Override
@@ -68,7 +74,7 @@ public class ReplicationCooperativeAssignor implements ConsumerPartitionAssignor
     @Override
     public void configure(Map<String, ?> configs) {
         this.config = new ReplicationCooperativeAssignorConfig(configs);
-        this.assignmentMetadata = new AssignmentMetadata(this.config.getInstanceId());
+        this.instanceId = this.config.getInstanceId();
     }
 
     @SneakyThrows

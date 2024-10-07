@@ -1,7 +1,7 @@
 package com.pg.replication.consumer.kafka.consumer;
 
 import com.pg.replication.common.event.*;
-import com.pg.replication.consumer.partition.PartitionAssignmentService;
+import com.pg.replication.consumer.assignment.PartitionAssignmentService;
 import com.pg.replication.consumer.payment.PaymentEventHandler;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

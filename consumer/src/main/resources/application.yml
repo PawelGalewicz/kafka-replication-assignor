@@ -1,3 +1,6 @@
+server:
+  shutdown: graceful
+
 kafka:
   topic:
     master: master-topic
@@ -22,6 +25,8 @@ management:
 application:
   instance:
     max_assignments: 10
+  initialisation:
+    delay-in-seconds: 30
 
 logging:
   level:

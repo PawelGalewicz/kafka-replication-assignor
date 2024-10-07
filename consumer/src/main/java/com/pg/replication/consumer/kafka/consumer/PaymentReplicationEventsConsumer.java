@@ -4,7 +4,7 @@ import com.pg.replication.common.event.PaymentReplicaDeletedEvent;
 import com.pg.replication.common.event.PaymentReplicaEvent;
 import com.pg.replication.common.event.PaymentReplicaUpdatedEvent;
 import com.pg.replication.common.event.PaymentReplicationStartedEvent;
-import com.pg.replication.consumer.partition.PartitionAssignmentService;
+import com.pg.replication.consumer.assignment.PartitionAssignmentService;
 import com.pg.replication.consumer.payment.PaymentEventHandler;
 import com.pg.replication.consumer.replication.ReplicationProcessService;
 import lombok.AllArgsConstructor;
@@ -65,7 +65,7 @@ public class PaymentReplicationEventsConsumer implements ConsumerSeekAware {
                 .collect(Collectors.toSet());
 
         replicaPartitions.forEach(replicationProcessService::startReplicationProcess);
-        partitionAssignmentService.handleAssignedReplicaPartitions(replicaPartitions);
+        partitionAssignmentService.addAssignedReplicaPartitions(replicaPartitions);
 
         callback.seekToBeginning(topicPartitions);
     }

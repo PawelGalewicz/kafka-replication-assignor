@@ -1,5 +1,6 @@
 package com.pg.replication.consumer.kafka.assignor;
 
+import com.pg.replication.consumer.lifecycle.ApplicationStateContext;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.lang3.stream.IntStreams;
 import org.apache.kafka.clients.consumer.ConsumerPartitionAssignor;
@@ -1037,16 +1038,24 @@ class ReplicationCooperativeAssignorTest {
     }
 
     ConsumerSubscription masterConsumer(String instance, List<TopicPartition> ownedPartitions) {
-        return consumer(instance, MASTER_TOPIC, ownedPartitions);
+        return consumer(instance, MASTER_TOPIC, ownedPartitions, ApplicationStateContext.ApplicationState.STABLE);
     }
 
     ConsumerSubscription replicaConsumer(String instance, List<TopicPartition> ownedPartitions) {
-        return consumer(instance, REPLICA_TOPIC, ownedPartitions);
+        return consumer(instance, REPLICA_TOPIC, ownedPartitions, ApplicationStateContext.ApplicationState.STABLE);
     }
 
-    ConsumerSubscription consumer(String instance, String topic, List<TopicPartition> ownedPartitions) {
+    ConsumerSubscription masterConsumer(String instance, List<TopicPartition> ownedPartitions, ApplicationStateContext.ApplicationState state) {
+        return consumer(instance, MASTER_TOPIC, ownedPartitions, state);
+    }
+
+    ConsumerSubscription replicaConsumer(String instance, List<TopicPartition> ownedPartitions, ApplicationStateContext.ApplicationState state) {
+        return consumer(instance, REPLICA_TOPIC, ownedPartitions, state);
+    }
+
+    ConsumerSubscription consumer(String instance, String topic, List<TopicPartition> ownedPartitions, ApplicationStateContext.ApplicationState state) {
         List<String> topics = singletonList(topic);
-        AssignmentMetadata assignmentMetadata = new AssignmentMetadata(instance);
+        AssignmentMetadata assignmentMetadata = new AssignmentMetadata(instance, state);
         ByteBuffer userData = ReplicationCooperativeAssignor.encodeAssignmentMetadata(assignmentMetadata);
         ConsumerPartitionAssignor.Subscription subscription = new ConsumerPartitionAssignor.Subscription(topics, userData, ownedPartitions);
         return new ConsumerSubscription(instance + "_" + topic + "_consumer", subscription);

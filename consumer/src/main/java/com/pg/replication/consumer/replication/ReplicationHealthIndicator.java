@@ -1,9 +1,12 @@
 package com.pg.replication.consumer.replication;
 
+import com.pg.replication.consumer.lifecycle.ApplicationStateContext;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.actuate.health.Health;
 import org.springframework.boot.actuate.health.HealthIndicator;
 import org.springframework.stereotype.Component;
+
+import static com.pg.replication.consumer.lifecycle.ApplicationStateContext.ApplicationState.REPLICATING;
 
 @Component
 public class ReplicationHealthIndicator implements HealthIndicator {
@@ -21,7 +24,7 @@ public class ReplicationHealthIndicator implements HealthIndicator {
 
     @Override
     public Health health() {
-        if (!replicationProcessService.isReplicationInProgress()) {
+        if (!REPLICATING.equals(ApplicationStateContext.getState())) {
             return Health.up().build();
         }
 
