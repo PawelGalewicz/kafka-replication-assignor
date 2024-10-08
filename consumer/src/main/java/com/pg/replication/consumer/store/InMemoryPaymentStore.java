@@ -12,7 +12,6 @@ public class InMemoryPaymentStore {
     private final Map<UUID, Integer> paymentToPartition = new ConcurrentHashMap<>();
 
     public Payment getPayment(UUID uuid) {
-//        todo add validation
         Integer partition = paymentToPartition.get(uuid);
         return paymentsMapPerPartition.get(partition).get(uuid);
     }

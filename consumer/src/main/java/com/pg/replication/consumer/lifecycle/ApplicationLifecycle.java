@@ -24,8 +24,7 @@ public class ApplicationLifecycle implements SmartLifecycle {
 
     @Override
     public int getPhase() {
-//        we want to trigger it before webserver stops accepting new requests
-//         fixme might not be needed
+//        we want to trigger it before kafka sends LeaveGroup request
         return AbstractMessageListenerContainer.DEFAULT_PHASE + 1;
     }
 
