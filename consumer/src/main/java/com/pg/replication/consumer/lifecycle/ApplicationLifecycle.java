@@ -1,7 +1,6 @@
 package com.pg.replication.consumer.lifecycle;
 
 import com.pg.replication.consumer.assignment.AssignmentLatch;
-import org.springframework.boot.web.context.WebServerGracefulShutdownLifecycle;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.kafka.listener.AbstractMessageListenerContainer;
 import org.springframework.stereotype.Component;
