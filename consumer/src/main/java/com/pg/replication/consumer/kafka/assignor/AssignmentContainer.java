@@ -1,5 +1,6 @@
 package com.pg.replication.consumer.kafka.assignor;
 
+import com.pg.replication.consumer.lifecycle.ApplicationStateContext;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerPartitionAssignor;
 import org.apache.kafka.common.TopicPartition;
@@ -32,11 +33,14 @@ public class AssignmentContainer {
         this.partitionAssignmentContainer = new PartitionAssignmentContainer(masterTopicPartitionCount, replicaTopicPartitionCount);
     }
 
-    public void addInstanceConsumer(String instance, String consumer, Collection<String> topics) {
+    public void addInstanceConsumer(String instance,
+                                    ApplicationStateContext.ApplicationState instanceState,
+                                    String consumer,
+                                    Collection<String> topics) {
         if (topics.contains(masterTopic)) {
-            instanceAssignmentContainer.addInstanceMasterConsumer(instance, consumer);
+            instanceAssignmentContainer.addInstanceMasterConsumer(instance, instanceState, consumer);
         } else if (topics.contains(replicaTopic)) {
-            instanceAssignmentContainer.addInstanceReplicaConsumer(instance, consumer);
+            instanceAssignmentContainer.addInstanceReplicaConsumer(instance, instanceState, consumer);
         }
     }
 

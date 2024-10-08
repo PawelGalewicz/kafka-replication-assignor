@@ -1,5 +1,6 @@
 package com.pg.replication.consumer.kafka.assignor;
 
+import com.pg.replication.consumer.lifecycle.ApplicationStateContext;
 import lombok.AllArgsConstructor;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
@@ -18,7 +19,7 @@ public class InstanceAssignmentContainer {
 
     Map<String, BitSet> consumerToPartitionAssignment = new HashMap<>();
     Map<String, AssignmentCount> instanceAssignmentCounter = new HashMap<>();
-    Map<String, InstanceConsumers> instanceToConsumers = new HashMap<>();
+    Map<String, InstanceData> instanceToData = new HashMap<>();
 
     public InstanceAssignmentContainer(Integer maxAssignmentsPerInstance, Integer masterTopicPartitionCount, Integer replicaTopicPartitionCount) {
         this.masterTopicPartitionCount = masterTopicPartitionCount;
@@ -27,12 +28,12 @@ public class InstanceAssignmentContainer {
     }
 
     public BitSet getMasterPartitionSet(String instance) {
-        String masterConsumer = instanceToConsumers.get(instance).masterConsumer;
+        String masterConsumer = instanceToData.get(instance).masterConsumer;
         return consumerToPartitionAssignment.computeIfAbsent(masterConsumer, ignore -> new BitSet(masterTopicPartitionCount));
     }
 
     public BitSet getReplicaPartitionSet(String instance) {
-        String replicaConsumer = instanceToConsumers.get(instance).replicaConsumer;
+        String replicaConsumer = instanceToData.get(instance).replicaConsumer;
         return consumerToPartitionAssignment.computeIfAbsent(replicaConsumer, ignore -> new BitSet(replicaTopicPartitionCount));
     }
 
@@ -40,30 +41,34 @@ public class InstanceAssignmentContainer {
         return instanceAssignmentCounter.get(instance);
     }
 
-    public void addInstanceMasterConsumer(String instance, String consumer) {
-        if (!instanceToConsumers.containsKey(instance)) {
-            initialiseInstance(instance);
+    public void addInstanceMasterConsumer(String instance,
+                                          ApplicationStateContext.ApplicationState instanceState,
+                                          String consumer) {
+        if (!instanceToData.containsKey(instance)) {
+            initialiseInstance(instance, instanceState);
         }
-        InstanceConsumers instanceConsumers = instanceToConsumers.get(instance);
-        if (instanceConsumers.masterConsumer == null) {
-            instanceConsumers.masterConsumer = consumer;
-        }
-    }
-
-    public void addInstanceReplicaConsumer(String instance, String consumer) {
-        if (!instanceToConsumers.containsKey(instance)) {
-            initialiseInstance(instance);
-        }
-        InstanceConsumers instanceConsumers = instanceToConsumers.get(instance);
-        if (instanceConsumers.replicaConsumer == null) {
-            instanceConsumers.replicaConsumer = consumer;
+        InstanceData instanceData = instanceToData.get(instance);
+        if (instanceData.masterConsumer == null) {
+            instanceData.masterConsumer = consumer;
         }
     }
 
-    public void initialiseInstance(String instance) {
+    public void addInstanceReplicaConsumer(String instance,
+                                           ApplicationStateContext.ApplicationState instanceState,
+                                           String consumer) {
+        if (!instanceToData.containsKey(instance)) {
+            initialiseInstance(instance, instanceState);
+        }
+        InstanceData instanceData = instanceToData.get(instance);
+        if (instanceData.replicaConsumer == null) {
+            instanceData.replicaConsumer = consumer;
+        }
+    }
+
+    public void initialiseInstance(String instance, ApplicationStateContext.ApplicationState instanceState) {
         AssignmentCount initialCount = AssignmentCount.first(instance, maxAssignmentsPerInstance);
         instanceAssignmentCounter.put(instance, initialCount);
-        instanceToConsumers.put(instance, new InstanceConsumers());
+        instanceToData.put(instance, new InstanceData(instance, instanceState));
     }
 
     public void addReplicaAssignment(String instance, Integer replicaPartition) {
@@ -96,18 +101,18 @@ public class InstanceAssignmentContainer {
     public Map<String, ConsumerPartitionAssignor.Assignment> buildAssignmentsByConsumer(String masterTopic, String replicaTopic) {
         Map<String, ConsumerPartitionAssignor.Assignment> partitionToConsumer = new HashMap<>(consumerToPartitionAssignment.size());
 
-        instanceToConsumers.values()
-                .forEach(instanceConsumers -> {
-                    if (instanceConsumers.masterConsumer != null) {
-                        BitSet masterPartitions = consumerToPartitionAssignment.getOrDefault(instanceConsumers.masterConsumer, new BitSet(0));
+        instanceToData.values()
+                .forEach(instanceData -> {
+                    if (instanceData.masterConsumer != null) {
+                        BitSet masterPartitions = consumerToPartitionAssignment.getOrDefault(instanceData.masterConsumer, new BitSet(0));
                         List<TopicPartition> topicPartitions = getTopicPartitions(masterPartitions, masterTopic);
-                        partitionToConsumer.put(instanceConsumers.masterConsumer, new ConsumerPartitionAssignor.Assignment(topicPartitions));
+                        partitionToConsumer.put(instanceData.masterConsumer, new ConsumerPartitionAssignor.Assignment(topicPartitions));
                     }
 
-                    if (instanceConsumers.replicaConsumer != null) {
-                        BitSet replicaPartitions = consumerToPartitionAssignment.getOrDefault(instanceConsumers.replicaConsumer, new BitSet(0));
+                    if (instanceData.replicaConsumer != null) {
+                        BitSet replicaPartitions = consumerToPartitionAssignment.getOrDefault(instanceData.replicaConsumer, new BitSet(0));
                         List<TopicPartition> topicPartitions = getTopicPartitions(replicaPartitions, replicaTopic);
-                        partitionToConsumer.put(instanceConsumers.replicaConsumer, new ConsumerPartitionAssignor.Assignment(topicPartitions));
+                        partitionToConsumer.put(instanceData.replicaConsumer, new ConsumerPartitionAssignor.Assignment(topicPartitions));
                     }
                 });
 
@@ -121,7 +126,7 @@ public class InstanceAssignmentContainer {
     }
 
     public int getNumberOfInstances() {
-        return instanceToConsumers.size();
+        return instanceToData.size();
     }
 
     public void removeMasterPartition(String instance, Integer masterPartition) {
@@ -210,9 +215,16 @@ public class InstanceAssignmentContainer {
         }
     }
 
-    public static class InstanceConsumers {
+    public static class InstanceData {
+        String instanceName;
         String masterConsumer;
         String replicaConsumer;
+        ApplicationStateContext.ApplicationState instanceState;
+
+        public InstanceData(String instanceName, ApplicationStateContext.ApplicationState instanceState) {
+            this.instanceName = instanceName;
+            this.instanceState = instanceState;
+        }
     }
 
 }

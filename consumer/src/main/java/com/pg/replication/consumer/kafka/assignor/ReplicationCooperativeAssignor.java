@@ -55,9 +55,11 @@ public class ReplicationCooperativeAssignor implements ConsumerPartitionAssignor
         for (Map.Entry<String, Subscription> consumerSubscription : groupSubscription.groupSubscription().entrySet()) {
             String consumer = consumerSubscription.getKey();
             Subscription subscription = consumerSubscription.getValue();
-            String instance = decodeAssignmentMetadata(subscription.userData()).getInstance();
+            AssignmentMetadata assignmentMetadata = decodeAssignmentMetadata(subscription.userData());
+            String instance = assignmentMetadata.getInstance();
+            ApplicationStateContext.ApplicationState instanceState = assignmentMetadata.state;
             List<String> topics = subscription.topics();
-            assignmentContainer.addInstanceConsumer(instance, consumer, topics);
+            assignmentContainer.addInstanceConsumer(instance, instanceState, consumer, topics);
 
             for (TopicPartition topicPartition : subscription.ownedPartitions()) {
                 assignmentContainer.addAssignment(topicPartition, instance);
