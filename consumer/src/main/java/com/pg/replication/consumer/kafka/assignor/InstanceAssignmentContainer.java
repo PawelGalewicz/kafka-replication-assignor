@@ -11,15 +11,20 @@ import org.apache.kafka.common.TopicPartition;
 import java.util.*;
 import java.util.function.Consumer;
 
+import static com.pg.replication.consumer.lifecycle.ApplicationStateContext.ApplicationState.*;
+
 public class InstanceAssignmentContainer {
 
     private final Integer maxAssignmentsPerInstance;
     private final Integer masterTopicPartitionCount;
     private final Integer replicaTopicPartitionCount;
 
+    private boolean terminatingInstanceExists = false;
+    private boolean newInstanceExists = false;
+
     Map<String, BitSet> consumerToPartitionAssignment = new HashMap<>();
-    Map<String, AssignmentCount> instanceAssignmentCounter = new HashMap<>();
     Map<String, InstanceData> instanceToData = new HashMap<>();
+
 
     public InstanceAssignmentContainer(Integer maxAssignmentsPerInstance, Integer masterTopicPartitionCount, Integer replicaTopicPartitionCount) {
         this.masterTopicPartitionCount = masterTopicPartitionCount;
@@ -38,14 +43,14 @@ public class InstanceAssignmentContainer {
     }
 
     public AssignmentCount getCount(String instance) {
-        return instanceAssignmentCounter.get(instance);
+        return instanceToData.get(instance).assignmentCount;
     }
 
     public void addInstanceMasterConsumer(String instance,
-                                          ApplicationStateContext.ApplicationState instanceState,
+                                          ApplicationStateContext.ApplicationDetails instanceDetails,
                                           String consumer) {
         if (!instanceToData.containsKey(instance)) {
-            initialiseInstance(instance, instanceState);
+            initialiseInstance(instance, instanceDetails);
         }
         InstanceData instanceData = instanceToData.get(instance);
         if (instanceData.masterConsumer == null) {
@@ -54,10 +59,10 @@ public class InstanceAssignmentContainer {
     }
 
     public void addInstanceReplicaConsumer(String instance,
-                                           ApplicationStateContext.ApplicationState instanceState,
+                                           ApplicationStateContext.ApplicationDetails instanceDetails,
                                            String consumer) {
         if (!instanceToData.containsKey(instance)) {
-            initialiseInstance(instance, instanceState);
+            initialiseInstance(instance, instanceDetails);
         }
         InstanceData instanceData = instanceToData.get(instance);
         if (instanceData.replicaConsumer == null) {
@@ -65,10 +70,16 @@ public class InstanceAssignmentContainer {
         }
     }
 
-    public void initialiseInstance(String instance, ApplicationStateContext.ApplicationState instanceState) {
+    public void initialiseInstance(String instance, ApplicationStateContext.ApplicationDetails instanceDetails) {
         AssignmentCount initialCount = AssignmentCount.first(instance, maxAssignmentsPerInstance);
-        instanceAssignmentCounter.put(instance, initialCount);
-        instanceToData.put(instance, new InstanceData(instance, instanceState));
+        instanceToData.put(instance, new InstanceData(instance, instanceDetails, initialCount));
+
+        if (!terminatingInstanceExists && TERMINATING.equals(instanceDetails.getState())) {
+            terminatingInstanceExists = true;
+        } else if (!newInstanceExists && instanceDetails.isNew()) {
+            newInstanceExists = true;
+        }
+
     }
 
     public void addReplicaAssignment(String instance, Integer replicaPartition) {
@@ -88,7 +99,7 @@ public class InstanceAssignmentContainer {
     }
 
     private void modifyCounter(String instance, Consumer<AssignmentCount> incrementFunction) {
-        AssignmentCount instanceAssignmentCount = instanceAssignmentCounter.computeIfAbsent(instance, ignore -> AssignmentCount.first(instance, maxAssignmentsPerInstance));
+        AssignmentCount instanceAssignmentCount = instanceToData.get(instance).assignmentCount;
         incrementFunction.accept(instanceAssignmentCount);
     }
 
@@ -125,10 +136,6 @@ public class InstanceAssignmentContainer {
                 .toList();
     }
 
-    public int getNumberOfInstances() {
-        return instanceToData.size();
-    }
-
     public void removeMasterPartition(String instance, Integer masterPartition) {
         BitSet instanceMasterSet = getMasterPartitionSet(instance);
         if (instanceMasterSet.get(masterPartition)) {
@@ -145,8 +152,20 @@ public class InstanceAssignmentContainer {
         }
     }
 
-    public Collection<AssignmentCount> getInstanceAssignmentCounterValues() {
-        return instanceAssignmentCounter.values();
+    public Collection<InstanceData> getInstanceDataValues() {
+        return instanceToData.values();
+    }
+
+    public InstanceData getInstanceData(String instance) {
+        return instanceToData.get(instance);
+    }
+
+    public boolean terminatingInstanceExists() {
+        return terminatingInstanceExists;
+    }
+
+    public boolean newInstanceExists() {
+        return newInstanceExists;
     }
 
 
@@ -155,11 +174,11 @@ public class InstanceAssignmentContainer {
     @NoArgsConstructor
     @EqualsAndHashCode
     public static class AssignmentCount {
-        String instance;
-        Integer masterCounter;
-        Integer replicaCounter;
-        Integer assignmentCounter;
-        Integer maxCounter;
+        protected String instance;
+        protected Integer masterCounter;
+        protected Integer replicaCounter;
+        protected Integer assignmentCounter;
+        protected Integer maxCounter;
 
         public AssignmentCount(String instance, Integer maxCounter) {
             this.instance = instance;
@@ -201,29 +220,48 @@ public class InstanceAssignmentContainer {
         public static AssignmentCount first(String instance, Integer maxCounter) {
             return new AssignmentCount(instance, maxCounter);
         }
-
-        public static Comparator<AssignmentCount> masterThenAssignmentCountComparator() {
-            return Comparator.comparingInt(AssignmentCount::getMasterCounter)
-                    .thenComparingInt(AssignmentCount::getAssignmentCounter)
-                    .thenComparing(AssignmentCount::getInstance);
-        }
-
-        public static Comparator<AssignmentCount> assignmentThenMasterCountComparator() {
-            return Comparator.comparingInt(AssignmentCount::getAssignmentCounter)
-                    .thenComparingInt(AssignmentCount::getMasterCounter)
-                    .thenComparing(AssignmentCount::getInstance);
-        }
     }
 
+    @Getter
     public static class InstanceData {
-        String instanceName;
-        String masterConsumer;
-        String replicaConsumer;
-        ApplicationStateContext.ApplicationState instanceState;
+        private String instanceId;
+        private String masterConsumer;
+        private String replicaConsumer;
+        private ApplicationStateContext.ApplicationDetails instanceDetails;
+        private AssignmentCount assignmentCount;
 
-        public InstanceData(String instanceName, ApplicationStateContext.ApplicationState instanceState) {
-            this.instanceName = instanceName;
-            this.instanceState = instanceState;
+        public InstanceData(String instanceId, ApplicationStateContext.ApplicationDetails instanceDetails, AssignmentCount initialCount) {
+            this.instanceId = instanceId;
+            this.instanceDetails = instanceDetails;
+            this.assignmentCount = initialCount;
+        }
+
+        boolean isTerminating() {
+            return TERMINATING.equals(instanceDetails.getState());
+        }
+
+        boolean isNotTerminating() {
+            return !isTerminating();
+        }
+
+        public boolean isStable() {
+            return STABLE.equals(instanceDetails.getState());
+        }
+
+        public boolean isNew() {
+            return instanceDetails.isNew();
+        }
+
+        public static Comparator<InstanceData> masterThenAssignmentCountComparator() {
+            return Comparator.comparingInt((InstanceData data) -> data.assignmentCount.getMasterCounter())
+                    .thenComparingInt((InstanceData data) -> data.assignmentCount.getAssignmentCounter())
+                    .thenComparing((InstanceData data) -> data.assignmentCount.getInstance());
+        }
+
+        public static Comparator<InstanceData> assignmentThenMasterCountComparator() {
+            return Comparator.comparingInt((InstanceData data) -> data.assignmentCount.getAssignmentCounter())
+                    .thenComparingInt((InstanceData data) -> data.assignmentCount.getMasterCounter())
+                    .thenComparing((InstanceData data) -> data.assignmentCount.getInstance());
         }
     }
 

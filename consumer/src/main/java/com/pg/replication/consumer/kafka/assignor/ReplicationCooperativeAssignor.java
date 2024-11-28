@@ -28,7 +28,7 @@ public class ReplicationCooperativeAssignor implements ConsumerPartitionAssignor
     public ByteBuffer subscriptionUserData(Set<String> topics) {
         AssignmentMetadata metadata = AssignmentMetadata.builder()
                 .instance(instanceId)
-                .state(ApplicationStateContext.getState())
+                .state(ApplicationStateContext.getDetails())
                 .build();
 
         return encodeAssignmentMetadata(metadata);
@@ -57,9 +57,9 @@ public class ReplicationCooperativeAssignor implements ConsumerPartitionAssignor
             Subscription subscription = consumerSubscription.getValue();
             AssignmentMetadata assignmentMetadata = decodeAssignmentMetadata(subscription.userData());
             String instance = assignmentMetadata.getInstance();
-            ApplicationStateContext.ApplicationState instanceState = assignmentMetadata.state;
+            ApplicationStateContext.ApplicationDetails instanceDetails = assignmentMetadata.state;
             List<String> topics = subscription.topics();
-            assignmentContainer.addInstanceConsumer(instance, instanceState, consumer, topics);
+            assignmentContainer.addInstanceConsumer(instance, instanceDetails, consumer, topics);
 
             for (TopicPartition topicPartition : subscription.ownedPartitions()) {
                 assignmentContainer.addAssignment(topicPartition, instance);

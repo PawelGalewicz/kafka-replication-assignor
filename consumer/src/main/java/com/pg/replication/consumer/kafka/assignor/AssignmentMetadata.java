@@ -12,5 +12,5 @@ import java.io.Serializable;
 @Builder(toBuilder = true)
 public class AssignmentMetadata implements Serializable {
     public String instance;
-    public ApplicationStateContext.ApplicationState state;
+    public ApplicationStateContext.ApplicationDetails state;
 }

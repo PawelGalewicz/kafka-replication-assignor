@@ -1,11 +1,15 @@
 package com.pg.replication.consumer.kafka.assignor;
 
+import com.pg.replication.consumer.kafka.assignor.InstanceAssignmentContainer.AssignmentCount;
+import com.pg.replication.consumer.kafka.assignor.InstanceAssignmentContainer.InstanceData;
 import com.pg.replication.consumer.lifecycle.ApplicationStateContext;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerPartitionAssignor;
 import org.apache.kafka.common.TopicPartition;
 
 import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static java.util.Map.entry;
 
@@ -30,13 +34,13 @@ public class AssignmentContainer {
     }
 
     public void addInstanceConsumer(String instance,
-                                    ApplicationStateContext.ApplicationState instanceState,
+                                    ApplicationStateContext.ApplicationDetails instanceDetails,
                                     String consumer,
                                     Collection<String> topics) {
         if (topics.contains(masterTopic)) {
-            instanceAssignmentContainer.addInstanceMasterConsumer(instance, instanceState, consumer);
+            instanceAssignmentContainer.addInstanceMasterConsumer(instance, instanceDetails, consumer);
         } else if (topics.contains(replicaTopic)) {
-            instanceAssignmentContainer.addInstanceReplicaConsumer(instance, instanceState, consumer);
+            instanceAssignmentContainer.addInstanceReplicaConsumer(instance, instanceDetails, consumer);
         }
     }
 
@@ -69,6 +73,10 @@ public class AssignmentContainer {
             optimiseAssignment();
         }
 
+        if (instanceAssignmentContainer.terminatingInstanceExists()) {
+            revokeAssignmentsFromTerminatingInstance();
+        }
+
         return instanceAssignmentContainer.buildAssignmentsByConsumer(masterTopic, replicaTopic);
     }
 //
@@ -82,64 +90,69 @@ public class AssignmentContainer {
              masterPartition >= 0;
              masterPartition = masterPartitionsToAssign.nextSetBit(masterPartition + 1)
         ) {
-            Optional<String> masterCandidateFromReplica = partitionAssignmentContainer.getReplicaInstanceForPartition(masterPartition);
+            Optional<InstanceData> masterCandidateFromReplica = getReadyReplicaInstance(masterPartition);
+
+//            master should not be moved if its replica is not ready
             if (masterCandidateFromReplica.isPresent()) {
-                promoteReplicaToMaster(masterCandidateFromReplica.get(), masterPartition);
+                promoteReplicaToMaster(masterCandidateFromReplica.get().getInstanceId(), masterPartition);
                 masterPartitionsToAssign.clear(masterPartition);
             }
         }
 
         log.debug("The following master partitions were not assigned due to no replicas available: {}", masterPartitionsToAssign);
 
-        PriorityQueue<InstanceAssignmentContainer.AssignmentCount> sortedInstanceCounts = getInstanceCountsSortedFromLeastToMostMastersAndAssignmentsQueue();
+        PriorityQueue<InstanceData> sortedInstances = getNonTerminatingInstancesSortedFromLeastToMostMastersAndAssignmentsQueue();
 
         masterPartitionsToAssign.and(replicaPartitionsToAssign);
         BitSet replicaPartitionsForUnassignedMasters = masterPartitionsToAssign;
 
         log.debug("Assigning replica partitions for unassigned masters");
-        while (!sortedInstanceCounts.isEmpty()) {
+        while (!sortedInstances.isEmpty()) {
             int replicaPartition = replicaPartitionsForUnassignedMasters.nextSetBit(0);
             if (replicaPartition < 0) {
                 break;
             }
 
-            InstanceAssignmentContainer.AssignmentCount instanceCount = sortedInstanceCounts.poll();
-            String instance = instanceCount.getInstance();
+            InstanceData instance = sortedInstances.poll();
+            AssignmentCount instanceCount = instance.getAssignmentCount();
+            String instanceName = instanceCount.getInstance();
             if (instanceCount.canIncrement()) {
     //            If space available, just assign a replica to the instance
-                addReplicaAssignment(instance, replicaPartition);
-                sortedInstanceCounts.add(instanceCount);
+                addReplicaAssignment(instanceName, replicaPartition);
+                sortedInstances.add(instance);
                 replicaPartitionsForUnassignedMasters.clear(replicaPartition);
                 replicaPartitionsToAssign.clear(replicaPartition);
             } else if (instanceCount.getReplicaCounter() > 0) {
-    //            If no more space on the instance, but there is another replica, replace it as a replica for an unassigned master has higher priority
-                OptionalInt replicaPartitionToReplace = instanceAssignmentContainer.getReplicaPartitionSet(instance)
+    //            If no more space on the instance, but there is another replica of an assigned master, replace it as a replica for an unassigned master has higher priority
+                OptionalInt replicaPartitionToReplace = instanceAssignmentContainer.getReplicaPartitionSet(instanceName)
                         .stream()
                         .filter(partition -> !masterPartitionsToAssign.get(partition))
                         .findFirst();
 
                 if (replicaPartitionToReplace.isPresent()) {
-                    forceReplicaAssignment(instance, replicaPartitionToReplace.getAsInt(), replicaPartition);
+                    forceReplicaAssignment(instanceName, replicaPartitionToReplace.getAsInt(), replicaPartition);
                     replicaPartitionsForUnassignedMasters.clear(replicaPartition);
                     replicaPartitionsToAssign.clear(replicaPartition);
                 }
             }
 
+//            fixme check if the instanceCount reference has increased
             if (instanceCount.canIncrement()) {
-                sortedInstanceCounts.add(instanceCount);
+                sortedInstances.add(instance);
             }
         }
 
         log.debug("Assigning the rest of replicas");
-        InstanceAssignmentContainer.AssignmentCount skippedInstance = null;
-        while (!sortedInstanceCounts.isEmpty()) {
+        InstanceData skippedInstance = null;
+        while (!sortedInstances.isEmpty()) {
             int replicaPartition = replicaPartitionsToAssign.nextSetBit(0);
             if (replicaPartition < 0) {
                 break;
             }
 
-            InstanceAssignmentContainer.AssignmentCount instanceCount = sortedInstanceCounts.poll();
-            String instance = instanceCount.getInstance();
+            InstanceData instance = sortedInstances.poll();
+            AssignmentCount instanceCount = instance.getAssignmentCount();
+            String instanceName = instanceCount.getInstance();
 
             if (!instanceCount.canIncrement()) {
                 continue;
@@ -148,26 +161,26 @@ public class AssignmentContainer {
     //        If we skipped an instance already, then it means we already found a master and don't need to check for it again
             if (skippedInstance == null) {
                 Boolean isInstanceMasterOfThisReplicaPartition = partitionAssignmentContainer.getMasterInstanceForPartition(replicaPartition)
-                        .map(master -> master.equals(instance))
+                        .map(master -> master.equals(instanceName))
                         .orElse(Boolean.FALSE);
 
     //        A replica cannot be assigned to the instance that already has a master of that same partition
                 if (isInstanceMasterOfThisReplicaPartition) {
-                    skippedInstance = instanceCount;
+                    skippedInstance = instance;
                     continue;
                 }
             }
 
-            addReplicaAssignment(instance, replicaPartition);
+            addReplicaAssignment(instanceName, replicaPartition);
             replicaPartitionsToAssign.clear(replicaPartition);
 
 
             if (instanceCount.canIncrement()) {
-                sortedInstanceCounts.add(instanceCount);
+                sortedInstances.add(instance);
             }
 
-            if (skippedInstance != null && skippedInstance.canIncrement()) {
-                sortedInstanceCounts.add(skippedInstance);
+            if (skippedInstance != null && skippedInstance.getAssignmentCount().canIncrement()) {
+                sortedInstances.add(skippedInstance);
                 skippedInstance = null;
             }
         }
@@ -181,6 +194,75 @@ public class AssignmentContainer {
         }
     }
 
+    private Optional<InstanceData> getReadyReplicaInstance(int masterPartition) {
+        return partitionAssignmentContainer.getReplicaInstanceForPartition(masterPartition)
+                .map(instanceAssignmentContainer::getInstanceData)
+                .filter(InstanceData::isStable);
+    }
+
+    private Optional<InstanceData> getReplicaInstance(int masterPartition) {
+        return partitionAssignmentContainer.getReplicaInstanceForPartition(masterPartition)
+                .map(instanceAssignmentContainer::getInstanceData);
+    }
+
+    private void revokeAssignmentsFromTerminatingInstance() {
+        List<InstanceData> terminatingInstances = getTerminatingInstances().toList();
+
+        boolean newInstanceExists = instanceAssignmentContainer.newInstanceExists();
+
+        for (InstanceData instance : terminatingInstances) {
+            if (newInstanceExists) {
+//                if new instance exists and an instance is terminating it most likely means there is a deployment happening.
+//                if so, replicas for all masters of terminating instance needs to be moved to the new instances to prepare them
+//                for migrating masters there. All replicas also need to be moved
+                instanceAssignmentContainer.getMasterPartitionSet(instance.getInstanceId())
+                        .stream()
+                        .forEach(masterPartition -> {
+                            Optional<InstanceData> replicaInstanceOptional = getReplicaInstance(masterPartition);
+                            if (replicaInstanceOptional.isEmpty()) {
+//                                if there is no replica, we don't do anything
+                                return;
+                            }
+
+                            InstanceData replicaInstance = replicaInstanceOptional.get();
+
+                            if (!replicaInstance.isNew()) {
+//                                if the replica is not in the new instance we want to move that replica to the new instance
+                                revokeReplicaAssignment(replicaInstance.getInstanceId(), masterPartition);
+                                return;
+                            }
+
+                            if (replicaInstance.isStable()) {
+//                                if the replica is in the new instance and is stable, we can revoke a master
+                                revokeMasterAssignment(instance.getInstanceId(), masterPartition);
+                            }
+                        });
+
+                instanceAssignmentContainer.getReplicaPartitionSet(instance.getInstanceId())
+                        .stream()
+                        .forEach(replicaPartition -> revokeReplicaAssignment(instance.getInstanceId(), replicaPartition));
+
+            } else {
+//                if there is no new instance, it most likely means that no deployment is happening,
+//                and the terminating instance is either restarted or descaled
+//                either way, all assignments need to be removed from it if possible
+                instanceAssignmentContainer.getReplicaPartitionSet(instance.getInstanceId())
+                        .stream()
+                        .forEach(replicaPartition -> revokeReplicaAssignment(instance.getInstanceId(), replicaPartition));
+
+                instanceAssignmentContainer.getMasterPartitionSet(instance.getInstanceId())
+                        .stream()
+                        .forEach(masterPartition -> {
+                            Optional<InstanceData> replicaInstance = getReadyReplicaInstance(masterPartition);
+                            if (replicaInstance.isPresent() && replicaInstance.get().isStable()) {
+//                                if the replica is ready we can revoke the master
+                                revokeMasterAssignment(instance.getInstanceId(), masterPartition);
+                            }
+                        });
+            }
+        }
+    }
+
     private void optimiseAssignment() {
 //        We want to do one optimisation at a time to make sure reassignments keep the state consistent
         if (tryOptimiseMasterAssignments()) {
@@ -191,16 +273,19 @@ public class AssignmentContainer {
     }
 
     private boolean tryOptimiseMasterAssignments() {
-        TreeSet<InstanceAssignmentContainer.AssignmentCount> sortedInstances = getInstanceCountsSortedFromLeastToMostMastersAndAssignmentsTree();
-        InstanceAssignmentContainer.AssignmentCount leastAssigned = sortedInstances.getFirst();
-        Iterator<InstanceAssignmentContainer.AssignmentCount> instanceCountsDescending = sortedInstances.descendingIterator();
+        TreeSet<InstanceData> sortedInstances = getInstancesForOptimisationSortedFromLeastToMostMastersAndAssignmentsTree();
+        if (sortedInstances.isEmpty()) {
+            return false;
+        }
+
+        AssignmentCount leastAssigned = sortedInstances.getFirst().getAssignmentCount();
+        Iterator<InstanceData> instanceCountsDescending = sortedInstances.descendingIterator();
 
         Integer prevMasterCount = -1;
-//        fixme save the count object and compare masters and overall assignments when setting it
         Integer prevMostOverworkedReplicaCount;
         Map.Entry<String, Integer> prevMostAssignedReplicaInstance = null;
         while (instanceCountsDescending.hasNext()) {
-            InstanceAssignmentContainer.AssignmentCount instanceCount = instanceCountsDescending.next();
+            AssignmentCount instanceCount = instanceCountsDescending.next().getAssignmentCount();
 
 //            If the previous instance has a larger master imbalance then this one, then we should resolve it first,
 //            but if the imbalance is the same, then maybe a master from this instance could be optimised faster
@@ -221,7 +306,7 @@ public class AssignmentContainer {
             for (int partition = masterPartitionsSet.nextSetBit(0); partition >= 0; partition = masterPartitionsSet.nextSetBit(partition + 1)) {
                 Optional<String> replicaInstanceForPartition = partitionAssignmentContainer.getReplicaInstanceForPartition(partition);
                 if (replicaInstanceForPartition.isPresent()) {
-                    InstanceAssignmentContainer.AssignmentCount replicaCount = instanceAssignmentContainer.getCount(replicaInstanceForPartition.get());
+                    AssignmentCount replicaCount = instanceAssignmentContainer.getCount(replicaInstanceForPartition.get());
                     if (instanceCount.getMasterCounter() - replicaCount.getMasterCounter() > 1) {
 //                        If the replica instance has at least 2 masters less, then we can safely move this master there
                         revokeMasterAssignment(instanceCount.getInstance(), partition);
@@ -243,13 +328,17 @@ public class AssignmentContainer {
     }
 
     private void tryOptimiseReplicaAssignments() {
-        TreeSet<InstanceAssignmentContainer.AssignmentCount> sortedInstances = getInstanceCountsSortedFromLeastToMostAssignmentsAndMasters();
-        InstanceAssignmentContainer.AssignmentCount leastAssigned = sortedInstances.getFirst();
+        TreeSet<InstanceData> sortedInstances = getInstancesForOptimisationSortedFromLeastToMostAssignmentsAndMastersTree();
+        if (sortedInstances.isEmpty()) {
+            return;
+        }
 
-        Iterator<InstanceAssignmentContainer.AssignmentCount> instanceCountsDescending = sortedInstances.descendingIterator();
+        AssignmentCount leastAssigned = sortedInstances.getFirst().getAssignmentCount();
+
+        Iterator<InstanceData> instanceCountsDescending = sortedInstances.descendingIterator();
 
         while (instanceCountsDescending.hasNext()) {
-            InstanceAssignmentContainer.AssignmentCount instanceCount = instanceCountsDescending.next();
+            AssignmentCount instanceCount = instanceCountsDescending.next().getAssignmentCount();
             int assignmentImbalance = instanceCount.getReplicaCounter() - leastAssigned.getReplicaCounter();
             if (assignmentImbalance < 1) {
 //                If there is no imbalance on this instance, then we can safely break the while loop as the instances are sorted,
@@ -295,22 +384,41 @@ public class AssignmentContainer {
         addReplicaAssignment(instance, replicaPartition);
     }
 
-    private TreeSet<InstanceAssignmentContainer.AssignmentCount> getInstanceCountsSortedFromLeastToMostMastersAndAssignmentsTree() {
-        TreeSet<InstanceAssignmentContainer.AssignmentCount> instancesSortedByMasterAndAssignmentCounts = new TreeSet<>(InstanceAssignmentContainer.AssignmentCount.masterThenAssignmentCountComparator());
-        instancesSortedByMasterAndAssignmentCounts.addAll(instanceAssignmentContainer.getInstanceAssignmentCounterValues());
-        return instancesSortedByMasterAndAssignmentCounts;
+    private PriorityQueue<InstanceData> getNonTerminatingInstancesSortedFromLeastToMostMastersAndAssignmentsQueue() {
+        return getNonTerminatingInstances()
+                .collect(Collectors.toCollection(
+                        () -> new PriorityQueue<>(InstanceData.masterThenAssignmentCountComparator()))
+                );
     }
 
-    private PriorityQueue<InstanceAssignmentContainer.AssignmentCount> getInstanceCountsSortedFromLeastToMostMastersAndAssignmentsQueue() {
-        PriorityQueue<InstanceAssignmentContainer.AssignmentCount> instancesSortedByMasterAndAssignmentCounts = new PriorityQueue<>(InstanceAssignmentContainer.AssignmentCount.masterThenAssignmentCountComparator());
-        instancesSortedByMasterAndAssignmentCounts.addAll(instanceAssignmentContainer.getInstanceAssignmentCounterValues());
-        return instancesSortedByMasterAndAssignmentCounts;
+    private TreeSet<InstanceData> getInstancesForOptimisationSortedFromLeastToMostMastersAndAssignmentsTree() {
+        return getNonTerminatingInstances()
+                .filter(InstanceData::isStable)
+                .filter(instanceData -> !instanceData.isNew())
+                .collect(Collectors.toCollection(
+                        () -> new TreeSet<>(InstanceData.masterThenAssignmentCountComparator()))
+                );
     }
 
-    private TreeSet<InstanceAssignmentContainer.AssignmentCount> getInstanceCountsSortedFromLeastToMostAssignmentsAndMasters() {
-        TreeSet<InstanceAssignmentContainer.AssignmentCount> instancesSortedByMasterAndAssignmentCounts = new TreeSet<>(InstanceAssignmentContainer.AssignmentCount.assignmentThenMasterCountComparator());
-        instancesSortedByMasterAndAssignmentCounts.addAll(instanceAssignmentContainer.getInstanceAssignmentCounterValues());
-        return instancesSortedByMasterAndAssignmentCounts;
+    private TreeSet<InstanceData> getInstancesForOptimisationSortedFromLeastToMostAssignmentsAndMastersTree() {
+        return getNonTerminatingInstances()
+                .filter(InstanceData::isStable)
+                .filter(instanceData -> !instanceData.isNew())
+                .collect(Collectors.toCollection(
+                        () -> new TreeSet<>(InstanceData.assignmentThenMasterCountComparator()))
+                );
+    }
+
+    private Stream<InstanceData> getNonTerminatingInstances() {
+        return instanceAssignmentContainer.getInstanceDataValues()
+                .stream()
+                .filter(InstanceData::isNotTerminating);
+    }
+
+    private Stream<InstanceData> getTerminatingInstances() {
+        return instanceAssignmentContainer.getInstanceDataValues()
+                .stream()
+                .filter(InstanceData::isTerminating);
     }
 
     private void promoteReplicaToMaster(String instance, Integer partition) {

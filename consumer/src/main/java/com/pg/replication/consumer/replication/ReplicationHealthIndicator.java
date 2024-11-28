@@ -28,7 +28,7 @@ public class ReplicationHealthIndicator implements HealthIndicator {
             return Health.up().build();
         }
 
-        Health.Builder health = Health.down();
+        Health.Builder health = Health.up();
         replicationProcessService.getCurrentReplicationProcesses()
                 .forEach(replicationProcess ->
                         health.withDetail(String.format("%s-%s", replicationTopicName, replicationProcess.partition().toString()), replicationProcess.replicationProcessUuid()));
