@@ -58,6 +58,8 @@ public class PaymentReplicationEventsConsumer implements ConsumerSeekAware {
             return;
         }
 
+//        todo test comment for pull request
+
         Set<TopicPartition> topicPartitions = assignments.keySet();
 
         Set<Integer> replicaPartitions = topicPartitions.stream()
