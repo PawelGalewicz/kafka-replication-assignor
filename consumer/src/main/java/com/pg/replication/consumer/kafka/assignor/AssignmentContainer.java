@@ -44,22 +44,28 @@ public class AssignmentContainer {
         }
     }
 
-    public void addAssignment(TopicPartition topicPartition, String instance) {
+    public void addExistingAssignment(TopicPartition topicPartition, String instance) {
         if (masterTopic.equals(topicPartition.topic())) {
-            addMasterAssignment(instance, topicPartition.partition());
+            addExistingMasterAssignment(instance, topicPartition.partition());
         } else if (replicaTopic.equals(topicPartition.topic())) {
-            addReplicaAssignment(instance, topicPartition.partition());
+            addExistingReplicaAssignment(instance, topicPartition.partition());
         }
     }
 
-    private void addMasterAssignment(String instance, Integer masterPartition) {
+    private void addExistingMasterAssignment(String instance, Integer masterPartition) {
         partitionAssignmentContainer.addMasterAssignment(instance, masterPartition);
         instanceAssignmentContainer.addMasterAssignment(instance, masterPartition);
     }
 
-    private void addReplicaAssignment(String instance, Integer replicaPartition) {
+    private void addExistingReplicaAssignment(String instance, Integer replicaPartition) {
         partitionAssignmentContainer.addReplicaAssignment(instance, replicaPartition);
         instanceAssignmentContainer.addReplicaAssignment(instance, replicaPartition);
+    }
+
+    private void addNewReplicaAssignment(String instance, Integer replicaPartition) {
+        partitionAssignmentContainer.addReplicaAssignment(instance, replicaPartition);
+        instanceAssignmentContainer.addReplicaAssignment(instance, replicaPartition);
+        instanceAssignmentContainer.markInstanceAsReplicating(instance);
     }
 
     public Map<String, ConsumerPartitionAssignor.Assignment> assign() {
@@ -118,7 +124,7 @@ public class AssignmentContainer {
             String instanceName = instanceCount.getInstance();
             if (instanceCount.canIncrement()) {
     //            If space available, just assign a replica to the instance
-                addReplicaAssignment(instanceName, replicaPartition);
+                addNewReplicaAssignment(instanceName, replicaPartition);
                 sortedInstances.add(instance);
                 replicaPartitionsForUnassignedMasters.clear(replicaPartition);
                 replicaPartitionsToAssign.clear(replicaPartition);
@@ -171,7 +177,7 @@ public class AssignmentContainer {
                 }
             }
 
-            addReplicaAssignment(instanceName, replicaPartition);
+            addNewReplicaAssignment(instanceName, replicaPartition);
             replicaPartitionsToAssign.clear(replicaPartition);
 
 
@@ -381,7 +387,7 @@ public class AssignmentContainer {
     private void forceReplicaAssignment(String instance, Integer replicaPartitionToBeReplaced, Integer replicaPartition) {
         log.info("Revoking replica partition {} from {} instance to replace it with replica partition {}", replicaPartitionToBeReplaced, instance, replicaPartition);
         revokeReplicaAssignment(instance, replicaPartitionToBeReplaced);
-        addReplicaAssignment(instance, replicaPartition);
+        addNewReplicaAssignment(instance, replicaPartition);
     }
 
     private PriorityQueue<InstanceData> getNonTerminatingInstancesSortedFromLeastToMostMastersAndAssignmentsQueue() {

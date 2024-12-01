@@ -90,6 +90,13 @@ public class InstanceAssignmentContainer {
         }
     }
 
+    public void markInstanceAsReplicating(String instance) {
+        ApplicationStateContext.ApplicationDetails instanceDetails = instanceToData.get(instance).getInstanceDetails();
+        if (!instanceDetails.getState().equals(REPLICATING)) {
+            instanceDetails.setState(REPLICATING);
+        }
+    }
+
     public void addMasterAssignment(String instance, Integer masterPartition) {
         BitSet instanceMasterSet = getMasterPartitionSet(instance);
         if (!instanceMasterSet.get(masterPartition)) {

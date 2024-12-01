@@ -62,7 +62,7 @@ public class ReplicationCooperativeAssignor implements ConsumerPartitionAssignor
             assignmentContainer.addInstanceConsumer(instance, instanceDetails, consumer, topics);
 
             for (TopicPartition topicPartition : subscription.ownedPartitions()) {
-                assignmentContainer.addAssignment(topicPartition, instance);
+                assignmentContainer.addExistingAssignment(topicPartition, instance);
             }
         }
         return assignmentContainer;
